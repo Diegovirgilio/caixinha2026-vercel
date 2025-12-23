@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Check, Clock, AlertCircle, Search, Filter,
-  ChevronLeft, ChevronRight, Loader2, X, DollarSign, CheckCircle
+  ChevronLeft, ChevronRight, Loader2, X, DollarSign, CheckCircle,
+  Edit2, Trash2, Plus, RefreshCw
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -15,34 +16,56 @@ const Mensalidades = () => {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [modalMode, setModalMode] = useState('pagamento'); // 'pagamento', 'editar', 'adicionar'
   const [selectedMensalidade, setSelectedMensalidade] = useState(null);
   const [valorPagamento, setValorPagamento] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+
+  // Form para editar/adicionar
+  const [formData, setFormData] = useState({
+    cotista_id: '',
+    valor_devido: '',
+    valor_pago: '',
+    status: 'pendente'
+  });
 
   useEffect(() => {
     loadCotistas();
     loadMensalidades();
   }, []);
 
+  // Filtrar apenas cotistas (não admins)
+  const apenasContistas = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
+
   // Dados do mês selecionado
   const mensalidadesMes = mensalidades[mesSelecionado] || [];
 
-  // Filtrar
-  const mensalidadesFiltradas = mensalidadesMes.filter(m => {
-    const matchSearch = m.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filtroStatus === 'todos' || m.status === filtroStatus;
-    return matchSearch && matchStatus;
+  // Filtrar mensalidades (excluindo admins)
+  const mensalidadesFiltradas = mensalidadesMes
+    .filter(m => {
+      // Excluir mensalidades de admins
+      const cotista = cotistas.find(c => c.id === m.cotista_id);
+      if (cotista?.is_admin) return false;
+      
+      const matchSearch = m.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = filtroStatus === 'todos' || m.status === filtroStatus;
+      return matchSearch && matchStatus;
+    });
+
+  // Estatísticas do mês (apenas cotistas, não admins)
+  const mensalidadesSemAdmin = mensalidadesMes.filter(m => {
+    const cotista = cotistas.find(c => c.id === m.cotista_id);
+    return !cotista?.is_admin;
   });
 
-  // Estatísticas do mês
   const stats = {
-    total: mensalidadesMes.length,
-    pagos: mensalidadesMes.filter(m => m.status === 'pago').length,
-    parciais: mensalidadesMes.filter(m => m.status === 'parcial').length,
-    pendentes: mensalidadesMes.filter(m => m.status === 'pendente').length,
-    valorEsperado: mensalidadesMes.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0),
-    valorRecebido: mensalidadesMes.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0)
+    total: mensalidadesSemAdmin.length,
+    pagos: mensalidadesSemAdmin.filter(m => m.status === 'pago').length,
+    parciais: mensalidadesSemAdmin.filter(m => m.status === 'parcial').length,
+    pendentes: mensalidadesSemAdmin.filter(m => m.status === 'pendente').length,
+    valorEsperado: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0),
+    valorRecebido: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0)
   };
 
   const navegarMes = (direcao) => {
@@ -59,9 +82,39 @@ const Mensalidades = () => {
     return `${meses[parseInt(m) - 1]}/${ano}`;
   };
 
+  // Abrir modal de pagamento
   const openPagamentoModal = (mensalidade) => {
     setSelectedMensalidade(mensalidade);
     setValorPagamento(String(mensalidade.valor_devido - (mensalidade.valor_pago || 0)));
+    setModalMode('pagamento');
+    setError('');
+    setShowModal(true);
+  };
+
+  // Abrir modal de edição
+  const openEditModal = (mensalidade) => {
+    setSelectedMensalidade(mensalidade);
+    setFormData({
+      cotista_id: mensalidade.cotista_id,
+      valor_devido: mensalidade.valor_devido,
+      valor_pago: mensalidade.valor_pago || 0,
+      status: mensalidade.status
+    });
+    setModalMode('editar');
+    setError('');
+    setShowModal(true);
+  };
+
+  // Abrir modal de adicionar
+  const openAddModal = () => {
+    setSelectedMensalidade(null);
+    setFormData({
+      cotista_id: '',
+      valor_devido: '',
+      valor_pago: '0',
+      status: 'pendente'
+    });
+    setModalMode('adicionar');
     setError('');
     setShowModal(true);
   };
@@ -79,7 +132,7 @@ const Mensalidades = () => {
       const novoValorPago = (selectedMensalidade.valor_pago || 0) + valor;
       const status = novoValorPago >= selectedMensalidade.valor_devido ? 'pago' : 'parcial';
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('mensalidades')
         .update({
           valor_pago: novoValorPago,
@@ -88,11 +141,112 @@ const Mensalidades = () => {
         })
         .eq('id', selectedMensalidade.id);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
       await loadMensalidades();
       setShowModal(false);
       setSuccess('Pagamento registrado com sucesso!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    const valorDevido = parseFloat(formData.valor_devido);
+    const valorPago = parseFloat(formData.valor_pago) || 0;
+
+    if (isNaN(valorDevido) || valorDevido <= 0) {
+      setError('Valor devido inválido');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let status = formData.status;
+      if (valorPago >= valorDevido) status = 'pago';
+      else if (valorPago > 0) status = 'parcial';
+      else status = 'pendente';
+
+      const { error: updateError } = await supabase
+        .from('mensalidades')
+        .update({
+          valor_devido: valorDevido,
+          valor_pago: valorPago,
+          status
+        })
+        .eq('id', selectedMensalidade.id);
+
+      if (updateError) throw updateError;
+
+      await loadMensalidades();
+      setShowModal(false);
+      setSuccess('Mensalidade atualizada com sucesso!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddMensalidade = async () => {
+    if (!formData.cotista_id) {
+      setError('Selecione um cotista');
+      return;
+    }
+
+    const valorDevido = parseFloat(formData.valor_devido);
+    if (isNaN(valorDevido) || valorDevido <= 0) {
+      setError('Valor devido inválido');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error: insertError } = await supabase
+        .from('mensalidades')
+        .insert({
+          cotista_id: formData.cotista_id,
+          mes_referencia: mesSelecionado,
+          valor_devido: valorDevido,
+          valor_pago: parseFloat(formData.valor_pago) || 0,
+          status: formData.status
+        });
+
+      if (insertError) throw insertError;
+
+      await loadMensalidades();
+      setShowModal(false);
+      setSuccess('Mensalidade adicionada com sucesso!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      if (err.code === '23505') {
+        setError('Já existe mensalidade para este cotista neste mês');
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (mensalidade) => {
+    if (!confirm(`Excluir mensalidade de ${mensalidade.cotista?.nome}?`)) return;
+
+    setLoading(true);
+    try {
+      const { error: deleteError } = await supabase
+        .from('mensalidades')
+        .delete()
+        .eq('id', mensalidade.id);
+
+      if (deleteError) throw deleteError;
+
+      await loadMensalidades();
+      setSuccess('Mensalidade excluída!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message);
@@ -108,7 +262,10 @@ const Mensalidades = () => {
 
     setLoading(true);
     try {
-      const mensalidadesParaInserir = cotistas.map(c => ({
+      // Apenas cotistas ativos e que não são admin
+      const cotistasAtivos = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
+      
+      const mensalidadesParaInserir = cotistasAtivos.map(c => ({
         cotista_id: c.id,
         mes_referencia: mesSelecionado,
         valor_devido: c.cotas * CONFIG.VALOR_POR_COTA,
@@ -116,14 +273,14 @@ const Mensalidades = () => {
         status: 'pendente'
       }));
 
-      const { error } = await supabase
+      const { error: insertError } = await supabase
         .from('mensalidades')
         .upsert(mensalidadesParaInserir, { 
           onConflict: 'cotista_id,mes_referencia',
           ignoreDuplicates: true 
         });
 
-      if (error) throw error;
+      if (insertError) throw insertError;
 
       await loadMensalidades();
       setSuccess('Mensalidades geradas com sucesso!');
@@ -220,7 +377,7 @@ const Mensalidades = () => {
         </div>
       </div>
 
-      {/* Filtros */}
+      {/* Filtros e Ações */}
       <div className="bg-white rounded-xl shadow-lg p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1 relative">
@@ -244,15 +401,21 @@ const Mensalidades = () => {
               <option value="parcial">Parciais</option>
               <option value="pendente">Pendentes</option>
             </select>
-            {mensalidadesMes.length === 0 && (
-              <button
-                onClick={handleGerarMensalidades}
-                disabled={loading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                Gerar Mensalidades
-              </button>
-            )}
+            <button
+              onClick={openAddModal}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2"
+            >
+              <Plus size={18} />
+              <span className="hidden sm:inline">Adicionar</span>
+            </button>
+            <button
+              onClick={handleGerarMensalidades}
+              disabled={loading}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw size={18} />
+              <span className="hidden sm:inline">Gerar</span>
+            </button>
           </div>
         </div>
       </div>
@@ -279,7 +442,7 @@ const Mensalidades = () => {
                   Status
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Ação
+                  Ações
                 </th>
               </tr>
             </thead>
@@ -311,15 +474,31 @@ const Mensalidades = () => {
                       {m.status === 'pago' ? 'Pago' : m.status === 'parcial' ? 'Parcial' : 'Pendente'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-center">
-                    {m.status !== 'pago' && (
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-center gap-1">
+                      {m.status !== 'pago' && (
+                        <button
+                          onClick={() => openPagamentoModal(m)}
+                          className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                        >
+                          Pagar
+                        </button>
+                      )}
                       <button
-                        onClick={() => openPagamentoModal(m)}
-                        className="px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                        onClick={() => openEditModal(m)}
+                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                        title="Editar"
                       >
-                        Registrar
+                        <Edit2 size={16} />
                       </button>
-                    )}
+                      <button
+                        onClick={() => handleDelete(m)}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                        title="Excluir"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -331,24 +510,26 @@ const Mensalidades = () => {
           <div className="text-center py-12 text-gray-500">
             <Calendar size={48} className="mx-auto mb-4 opacity-50" />
             <p>Nenhuma mensalidade encontrada para este mês</p>
-            {mensalidadesMes.length === 0 && (
-              <button
-                onClick={handleGerarMensalidades}
-                className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                Gerar Mensalidades
-              </button>
-            )}
+            <button
+              onClick={handleGerarMensalidades}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Gerar Mensalidades
+            </button>
           </div>
         )}
       </div>
 
-      {/* Modal de Pagamento */}
-      {showModal && selectedMensalidade && (
+      {/* Modal */}
+      {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold">Registrar Pagamento</h3>
+              <h3 className="text-lg font-semibold">
+                {modalMode === 'pagamento' && 'Registrar Pagamento'}
+                {modalMode === 'editar' && 'Editar Mensalidade'}
+                {modalMode === 'adicionar' && 'Nova Mensalidade'}
+              </h3>
               <button onClick={() => setShowModal(false)} className="p-1 hover:bg-gray-100 rounded">
                 <X size={20} />
               </button>
@@ -361,42 +542,117 @@ const Mensalidades = () => {
                 </div>
               )}
 
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="text-sm text-gray-600">Cotista</p>
-                <p className="font-medium text-gray-800">{selectedMensalidade.cotista?.nome}</p>
-                <div className="flex justify-between mt-2 text-sm">
-                  <span className="text-gray-600">Valor devido:</span>
-                  <span className="font-medium">{formatCurrency(selectedMensalidade.valor_devido)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Já pago:</span>
-                  <span className="font-medium">{formatCurrency(selectedMensalidade.valor_pago || 0)}</span>
-                </div>
-                <div className="flex justify-between text-sm border-t mt-2 pt-2">
-                  <span className="text-gray-600">Restante:</span>
-                  <span className="font-bold text-red-600">
-                    {formatCurrency(selectedMensalidade.valor_devido - (selectedMensalidade.valor_pago || 0))}
-                  </span>
-                </div>
-              </div>
+              {/* Modal Pagamento */}
+              {modalMode === 'pagamento' && selectedMensalidade && (
+                <>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-sm text-gray-600">Cotista</p>
+                    <p className="font-medium text-gray-800">{selectedMensalidade.cotista?.nome}</p>
+                    <div className="flex justify-between mt-2 text-sm">
+                      <span className="text-gray-600">Valor devido:</span>
+                      <span className="font-medium">{formatCurrency(selectedMensalidade.valor_devido)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Já pago:</span>
+                      <span className="font-medium">{formatCurrency(selectedMensalidade.valor_pago || 0)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm border-t mt-2 pt-2">
+                      <span className="text-gray-600">Restante:</span>
+                      <span className="font-bold text-red-600">
+                        {formatCurrency(selectedMensalidade.valor_devido - (selectedMensalidade.valor_pago || 0))}
+                      </span>
+                    </div>
+                  </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Valor do Pagamento
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={valorPagamento}
-                    onChange={(e) => setValorPagamento(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                    placeholder="0,00"
-                  />
-                </div>
-              </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Valor do Pagamento
+                    </label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={valorPagamento}
+                        onChange={(e) => setValorPagamento(e.target.value)}
+                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Modal Editar/Adicionar */}
+              {(modalMode === 'editar' || modalMode === 'adicionar') && (
+                <>
+                  {modalMode === 'adicionar' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Cotista *</label>
+                      <select
+                        value={formData.cotista_id}
+                        onChange={(e) => {
+                          const cotista = apenasContistas.find(c => c.id === e.target.value);
+                          setFormData({ 
+                            ...formData, 
+                            cotista_id: e.target.value,
+                            valor_devido: cotista ? cotista.cotas * CONFIG.VALOR_POR_COTA : ''
+                          });
+                        }}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Selecione...</option>
+                        {apenasContistas.map(c => (
+                          <option key={c.id} value={c.id}>{c.nome} ({c.cotas} cotas)</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {modalMode === 'editar' && selectedMensalidade && (
+                    <div className="bg-gray-50 p-3 rounded-lg">
+                      <p className="text-sm text-gray-600">Cotista</p>
+                      <p className="font-medium text-gray-800">{selectedMensalidade.cotista?.nome}</p>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Valor Devido *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.valor_devido}
+                      onChange={(e) => setFormData({ ...formData, valor_devido: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Valor Pago</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.valor_pago}
+                      onChange={(e) => setFormData({ ...formData, valor_pago: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="pendente">Pendente</option>
+                      <option value="parcial">Parcial</option>
+                      <option value="pago">Pago</option>
+                    </select>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="flex gap-3 p-4 border-t bg-gray-50">
@@ -407,9 +663,13 @@ const Mensalidades = () => {
                 Cancelar
               </button>
               <button
-                onClick={handleRegistrarPagamento}
+                onClick={() => {
+                  if (modalMode === 'pagamento') handleRegistrarPagamento();
+                  else if (modalMode === 'editar') handleSaveEdit();
+                  else handleAddMensalidade();
+                }}
                 disabled={loading}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {loading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
                 {loading ? 'Salvando...' : 'Confirmar'}

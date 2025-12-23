@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Edit2, Trash2, UserCheck, UserX,
-  ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info
+  ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info,
+  Mail, Clock, CheckCircle, RefreshCw
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -10,6 +11,7 @@ import { CONFIG } from '../utils/constants';
 
 const Cotistas = () => {
   const { cotistas, loadCotistas } = useAppStore();
+  const [pendentes, setPendentes] = useState([]);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('nome');
   const [sortDir, setSortDir] = useState('asc');
@@ -22,7 +24,26 @@ const Cotistas = () => {
 
   useEffect(() => {
     loadCotistas();
+    loadPendentes();
   }, []);
+
+  // Carregar cotistas pendentes de confirmação
+  const loadPendentes = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('cotistas')
+        .select('*')
+        .eq('email_confirmado', false)
+        .not('user_id', 'is', null)
+        .order('created_at', { ascending: false });
+      
+      if (!error) {
+        setPendentes(data || []);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar pendentes:', err);
+    }
+  };
 
   // Filtrar apenas cotistas (não admins)
   // Regra: Admin não pode ser cotista, são entidades separadas
@@ -211,6 +232,66 @@ const Cotistas = () => {
     }
   };
 
+  // Aprovar manualmente um cotista pendente (confirmar email)
+  const handleAprovarPendente = async (cotista) => {
+    if (!confirm(`Aprovar "${cotista.nome}" manualmente?\n\nIsso confirmará o cadastro mesmo sem a verificação de email.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { error: updateError } = await supabase
+        .from('cotistas')
+        .update({ email_confirmado: true })
+        .eq('id', cotista.id);
+
+      if (updateError) throw updateError;
+
+      await loadCotistas();
+      await loadPendentes();
+      setSuccess(`${cotista.nome} aprovado com sucesso!`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message);
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Excluir cotista pendente
+  const handleExcluirPendente = async (cotista) => {
+    if (!confirm(`Excluir "${cotista.nome}"?\n\nEste usuário não confirmou o email e será removido do sistema.`)) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Primeiro deletar mensalidades associadas
+      await supabase
+        .from('mensalidades')
+        .delete()
+        .eq('cotista_id', cotista.id);
+
+      // Depois deletar o cotista
+      const { error: deleteError } = await supabase
+        .from('cotistas')
+        .delete()
+        .eq('id', cotista.id);
+
+      if (deleteError) throw deleteError;
+
+      await loadPendentes();
+      setSuccess(`${cotista.nome} excluído!`);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message);
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const totalCotas = cotistasFiltrados.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
   return (
@@ -247,13 +328,61 @@ const Cotistas = () => {
 
       {/* Mensagens */}
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
+        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg flex items-center gap-2">
+          <CheckCircle size={20} />
           {success}
         </div>
       )}
       {error && !showModal && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
           {error}
+        </div>
+      )}
+
+      {/* Pendentes de Confirmação */}
+      {pendentes.length > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+          <h2 className="font-semibold text-yellow-800 flex items-center gap-2 mb-4">
+            <Clock size={20} />
+            Aguardando Confirmação de Email ({pendentes.length})
+          </h2>
+          <p className="text-sm text-yellow-700 mb-4">
+            Estes usuários se cadastraram mas ainda não confirmaram o email. 
+            Você pode aprová-los manualmente ou excluí-los.
+          </p>
+          <div className="space-y-2">
+            {pendentes.map((p) => (
+              <div key={p.id} className="bg-white rounded-lg p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center text-yellow-600 font-medium">
+                    {p.nome?.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-800">{p.nome}</p>
+                    <p className="text-sm text-gray-500">{p.email} • {p.cotas} cotas</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleAprovarPendente(p)}
+                    disabled={loading}
+                    className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1 text-sm disabled:opacity-50"
+                  >
+                    <CheckCircle size={16} />
+                    Aprovar
+                  </button>
+                  <button
+                    onClick={() => handleExcluirPendente(p)}
+                    disabled={loading}
+                    className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-1 text-sm disabled:opacity-50"
+                  >
+                    <Trash2 size={16} />
+                    Excluir
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

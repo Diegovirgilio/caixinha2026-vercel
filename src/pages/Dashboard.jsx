@@ -14,6 +14,10 @@ const Dashboard = () => {
   const [resumo, setResumo] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Filtrar apenas cotistas (não admins)
+  const apenasContistas = cotistas.filter(c => !c.is_admin);
+  const totalCotasCalc = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
+
   useEffect(() => {
     const loadResumo = async () => {
       try {
@@ -21,10 +25,10 @@ const Dashboard = () => {
         setResumo(data);
       } catch (error) {
         console.error('Erro ao carregar resumo:', error);
-        // Calcular localmente se falhar
+        // Calcular localmente se falhar (excluindo admins)
         setResumo({
-          totalCotas: getTotalCotas(),
-          totalCotistas: cotistas.length,
+          totalCotas: totalCotasCalc,
+          totalCotistas: apenasContistas.length,
           totalInvestido: getTotalInvestido(),
           totalEmprestimosAtivos: emprestimos.filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
           totalJuros: emprestimos.filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
@@ -38,11 +42,14 @@ const Dashboard = () => {
     loadResumo();
   }, [cotistas, emprestimos, rifas, cdi]);
 
-  const totalCotas = resumo?.totalCotas || getTotalCotas();
+  const totalCotas = resumo?.totalCotas || totalCotasCalc;
   const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0);
   
-  // Empréstimos pendentes de aprovação
-  const emprestimosPendentes = emprestimos.filter(e => e.status === 'pendente');
+  // Empréstimos pendentes de aprovação (excluindo admins)
+  const emprestimosPendentes = emprestimos.filter(e => {
+    const cotistaEmprestimo = cotistas.find(c => c.id === e.cotista_id);
+    return e.status === 'pendente' && !cotistaEmprestimo?.is_admin;
+  });
 
   const StatCard = ({ title, value, icon: Icon, color, subtext, trend }) => (
     <div className={`bg-gradient-to-br ${color} p-6 rounded-xl shadow-lg text-white`}>
@@ -218,7 +225,7 @@ const Dashboard = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {cotistas
+              {apenasContistas
                 .sort((a, b) => b.cotas - a.cotas)
                 .slice(0, 10)
                 .map((c, idx) => (
@@ -230,9 +237,6 @@ const Dashboard = () => {
                           {c.nome?.charAt(0)}
                         </div>
                         <span className="font-medium text-gray-900">{c.nome}</span>
-                        {c.is_admin && (
-                          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full">Admin</span>
-                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{c.cotas}</td>

@@ -10,15 +10,19 @@ import { CONFIG } from '../utils/constants';
 const Relatorio = () => {
   const { cotistas, mensalidades, emprestimos, rifas, cdi, isLoading } = useAppStore();
   
-  // Não precisa carregar novamente - os dados já foram carregados no App.jsx
+  // Filtrar apenas cotistas (não admins)
+  const apenasContistas = cotistas.filter(c => !c.is_admin);
 
-  // ===== CÁLCULOS =====
+  // ===== CÁLCULOS (apenas cotistas, não admins) =====
 
   // Total de cotas
-  const totalCotas = cotistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
+  const totalCotas = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
-  // Mensalidades
-  const todasMensalidades = Object.values(mensalidades).flat();
+  // Filtrar mensalidades excluindo admins
+  const todasMensalidades = Object.values(mensalidades).flat().filter(m => {
+    const cotista = cotistas.find(c => c.id === m.cotista_id);
+    return !cotista?.is_admin;
+  });
   const totalEsperado = todasMensalidades.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
   const totalRecebido = todasMensalidades.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
   const totalPendente = totalEsperado - totalRecebido;
@@ -29,11 +33,15 @@ const Relatorio = () => {
   const mensalidadesParciais = todasMensalidades.filter(m => m.status === 'parcial').length;
   const mensalidadesPendentes = todasMensalidades.filter(m => m.status === 'pendente').length;
 
-  // Empréstimos
-  const emprestimosAtivos = emprestimos.filter(e => e.status === 'ativo');
+  // Empréstimos (excluindo admins)
+  const emprestimosValidos = emprestimos.filter(e => {
+    const cotista = cotistas.find(c => c.id === e.cotista_id);
+    return !cotista?.is_admin;
+  });
+  const emprestimosAtivos = emprestimosValidos.filter(e => e.status === 'ativo');
   const totalEmprestado = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
   const jurosEmprestimos = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-  const emprestimosPagos = emprestimos.filter(e => e.status === 'pago');
+  const emprestimosPagos = emprestimosValidos.filter(e => e.status === 'pago');
   const totalRecebidoEmprestimos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
   const jurosRecebidos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
 
@@ -45,9 +53,12 @@ const Relatorio = () => {
   const totalEntradas = totalRecebido + totalRecebidoEmprestimos + totalRifas + totalCdi;
   const saldoAtual = totalRecebido + totalRifas + totalCdi + jurosRecebidos - totalEmprestado;
 
-  // Dados por mês
+  // Dados por mês (excluindo admins)
   const dadosPorMes = CONFIG.MESES.map(mes => {
-    const mensMes = mensalidades[mes] || [];
+    const mensMes = (mensalidades[mes] || []).filter(m => {
+      const cotista = cotistas.find(c => c.id === m.cotista_id);
+      return !cotista?.is_admin;
+    });
     const esperado = mensMes.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
     const recebido = mensMes.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
     const [ano, m] = mes.split('-');
@@ -61,8 +72,8 @@ const Relatorio = () => {
     };
   });
 
-  // Top 10 cotistas por investimento
-  const topCotistas = cotistas
+  // Top 10 cotistas por investimento (excluindo admins)
+  const topCotistas = apenasContistas
     .map(c => {
       const totalPago = Object.values(mensalidades).flat()
         .filter(m => m.cotista_id === c.id)

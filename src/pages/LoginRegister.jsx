@@ -14,7 +14,7 @@ const LoginRegister = () => {
   const [showPassword, setShowPassword] = useState(false);
   
   const [registerData, setRegisterData] = useState({
-    nome: '', email: '', password: '', confirmPassword: '', cotas: 1
+    nome: '', email: '', password: '', confirmPassword: '', cotas: ''
   });
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   
@@ -80,7 +80,12 @@ const LoginRegister = () => {
       setError('As senhas não coincidem');
       return;
     }
-    if (registerData.cotas < 1 || registerData.cotas > 50) {
+    const cotasNum = parseInt(registerData.cotas);
+    if (!registerData.cotas || isNaN(cotasNum) || cotasNum < 1) {
+      setError('Informe um número válido de cotas (mínimo 1)');
+      return;
+    }
+    if (cotasNum > 50) {
       setError('Número de cotas deve ser entre 1 e 50');
       return;
     }
@@ -93,9 +98,9 @@ const LoginRegister = () => {
         nome: registerData.nome.trim(),
         cotas: parseInt(registerData.cotas)
       });
-      setSuccess('Cadastro realizado com sucesso! Verifique seu email para confirmar a conta.');
-      setRegisterData({ nome: '', email: '', password: '', confirmPassword: '', cotas: 1 });
-      setTimeout(() => { setMode('login'); setSuccess(''); }, 5000);
+      setSuccess('Cadastro realizado! Verifique seu email (inclusive a pasta de spam) para confirmar sua conta. Seu acesso será liberado após a confirmação.');
+      setRegisterData({ nome: '', email: '', password: '', confirmPassword: '', cotas: '' });
+      setTimeout(() => { setMode('login'); setSuccess(''); }, 8000);
     } catch (err) {
       // Verificar se é erro de nome duplicado
       if (err.message.includes('sobrenome') || err.message.includes('já existe')) {
@@ -110,7 +115,8 @@ const LoginRegister = () => {
     }
   };
 
-  const valorMensalidade = registerData.cotas * CONFIG.VALOR_POR_COTA;
+  const cotasNum = parseInt(registerData.cotas) || 0;
+  const valorMensalidade = cotasNum * CONFIG.VALOR_POR_COTA;
   const valorTotal = valorMensalidade * 11;
 
   return (
@@ -320,8 +326,9 @@ const LoginRegister = () => {
                     min="1" 
                     max="50" 
                     value={registerData.cotas}
-                    onChange={(e) => setRegisterData({ ...registerData, cotas: parseInt(e.target.value) || 1 })}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500" 
+                    onChange={(e) => setRegisterData({ ...registerData, cotas: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder="Digite o número de cotas"
                   />
                 </div>
                 <div className="mt-2 p-3 bg-blue-50 rounded-lg text-xs">

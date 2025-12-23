@@ -101,7 +101,7 @@ export const useAuthStore = create((set, get) => ({
       
       if (authError) throw authError;
       
-      // Criar registro na tabela cotistas
+      // Criar registro na tabela cotistas (ainda não confirmado)
       const { data: cotista, error: cotistaError } = await supabase
         .from('cotistas')
         .insert({
@@ -110,7 +110,8 @@ export const useAuthStore = create((set, get) => ({
           email,
           cotas: parseInt(cotas) || 1,
           is_admin: false,
-          status: 'ativo'
+          status: 'ativo',
+          email_confirmado: false // Só será true após confirmar email
         })
         .select()
         .single();
@@ -189,10 +190,11 @@ export const useAppStore = create((set, get) => ({
 
   loadCotistas: async () => {
     try {
-      // Buscar todos os cotistas (ativos e inativos) para o admin gerenciar
+      // Buscar apenas cotistas com email confirmado (ou criados manualmente pelo admin)
       const { data, error } = await supabase
         .from('cotistas')
         .select('*')
+        .or('email_confirmado.eq.true,user_id.is.null')
         .order('nome');
       
       if (error) throw error;
