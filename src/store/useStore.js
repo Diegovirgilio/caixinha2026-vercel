@@ -213,7 +213,7 @@ export const useAppStore = create((set, get) => ({
     try {
       const { data, error } = await supabase
         .from('comprovantes')
-        .select(`*, cotista:cotistas(id, nome, email)`)
+        .select(`*, cotista:cotistas!comprovantes_cotista_id_fkey(id, nome, email)`)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
