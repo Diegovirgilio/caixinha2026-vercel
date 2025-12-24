@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   PiggyBank, TrendingUp, Users, Calendar, DollarSign, 
-  FileText, Settings, Home, LogOut,
+  FileText, Settings, Home, LogOut, FileCheck,
   Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from './store/useStore';
@@ -17,6 +17,7 @@ import Emprestimos from './pages/Emprestimos';
 import RifasCdi from './pages/RifasCdi';
 import Relatorio from './pages/Relatorio';
 import Gerenciamento from './pages/Gerenciamento';
+import Comprovantes from './pages/Comprovantes';
 
 import { CONFIG } from './utils/constants';
 
@@ -112,12 +113,16 @@ const App = () => {
 
   // ==================== CONFIGURAÇÕES ====================
 
+  // Pegar número de comprovantes pendentes
+  const { comprovantes_pendentes } = useAppStore();
+
   // Navegação
   const adminTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'cotistas', label: 'Cotistas', icon: Users },
     { id: 'mensalidades', label: 'Mensalidades', icon: Calendar },
     { id: 'emprestimos', label: 'Empréstimos', icon: DollarSign },
+    { id: 'comprovantes', label: 'Comprovantes', icon: FileCheck, badge: comprovantes_pendentes },
     { id: 'rifas', label: 'Rifas & CDI', icon: PiggyBank },
     { id: 'relatorio', label: 'Relatório', icon: FileText },
     { id: 'gerenciamento', label: 'Gerenciamento', icon: Settings }
@@ -143,6 +148,8 @@ const App = () => {
         return <Mensalidades />;
       case 'emprestimos':
         return <Emprestimos />;
+      case 'comprovantes':
+        return <Comprovantes />;
       case 'rifas':
         return <RifasCdi />;
       case 'relatorio':
@@ -257,11 +264,11 @@ const App = () => {
       <nav className="bg-white shadow-md sticky top-[72px] z-10">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex overflow-x-auto">
-            {tabs.map(({ id, label, icon: Icon }) => (
+            {tabs.map(({ id, label, icon: Icon, badge }) => (
               <button
                 key={id}
                 onClick={() => setCurrentTab(id)}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap relative ${
                   currentTab === id
                     ? 'border-blue-600 text-blue-600 bg-blue-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
@@ -269,6 +276,11 @@ const App = () => {
               >
                 <Icon size={18} />
                 {label}
+                {badge > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                )}
               </button>
             ))}
           </div>

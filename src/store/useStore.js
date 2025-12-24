@@ -181,6 +181,8 @@ export const useAppStore = create((set, get) => ({
   emprestimos: [],
   rifas: [],
   cdi: [],
+  comprovantes: [],
+  comprovantes_pendentes: 0,
   config: { ...CONFIG },
   isLoading: false,
   isOnline: true,
@@ -203,6 +205,141 @@ export const useAppStore = create((set, get) => ({
     } catch (error) {
       console.error('Erro ao carregar cotistas:', error);
       return [];
+    }
+  },
+
+  // ===== COMPROVANTES =====
+  loadComprovantes: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('comprovantes')
+        .select(`*, cotista:cotistas(id, nome, email)`)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      const pendentes = (data || []).filter(c => c.status === 'pendente').length;
+      set({ comprovantes: data || [], comprovantes_pendentes: pendentes });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar comprovantes:', error);
+      return [];
+    }
+  },
+
+  enviarComprovante: async (comprovante) => {
+    try {
+      const { data, error } = await supabase
+        .from('comprovantes')
+        .insert(comprovante)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      await get().loadComprovantes();
+      return data;
+    } catch (error) {
+      console.error('Erro ao enviar comprovante:', error);
+      throw error;
+    }
+  },
+
+  aprovarComprovante: async (comprovanteId, adminId, valorAprovado) => {
+    try {
+      // Buscar comprovante
+      const { data: comprovante } = await supabase
+        .from('comprovantes')
+        .select('*')
+        .eq('id', comprovanteId)
+        .single();
+      
+      if (!comprovante) throw new Error('Comprovante não encontrado');
+
+      // Atualizar comprovante
+      const { error: updateError } = await supabase
+        .from('comprovantes')
+        .update({
+          status: 'aprovado',
+          validado_por: adminId,
+          data_validacao: new Date().toISOString()
+        })
+        .eq('id', comprovanteId);
+      
+      if (updateError) throw updateError;
+
+      // Atualizar mensalidade ou empréstimo
+      if (comprovante.tipo === 'mensalidade') {
+        const { data: mensalidade } = await supabase
+          .from('mensalidades')
+          .select('*')
+          .eq('id', comprovante.referencia_id)
+          .single();
+        
+        if (mensalidade) {
+          const novoValorPago = (mensalidade.valor_pago || 0) + valorAprovado;
+          const status = novoValorPago >= mensalidade.valor_devido ? 'pago' : 'parcial';
+          
+          await supabase
+            .from('mensalidades')
+            .update({
+              valor_pago: novoValorPago,
+              status,
+              data_pagamento: new Date().toISOString()
+            })
+            .eq('id', comprovante.referencia_id);
+        }
+      } else if (comprovante.tipo === 'emprestimo') {
+        const { data: emprestimo } = await supabase
+          .from('emprestimos')
+          .select('*')
+          .eq('id', comprovante.referencia_id)
+          .single();
+        
+        if (emprestimo) {
+          const novoValorPago = (emprestimo.valor_pago || 0) + valorAprovado;
+          const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
+          
+          await supabase
+            .from('emprestimos')
+            .update({
+              valor_pago: novoValorPago,
+              status,
+              data_quitacao: status === 'pago' ? new Date().toISOString() : null
+            })
+            .eq('id', comprovante.referencia_id);
+        }
+      }
+
+      await get().loadComprovantes();
+      await get().loadMensalidades();
+      await get().loadEmprestimos();
+      return true;
+    } catch (error) {
+      console.error('Erro ao aprovar comprovante:', error);
+      throw error;
+    }
+  },
+
+  rejeitarComprovante: async (comprovanteId, adminId, motivo) => {
+    try {
+      const { error } = await supabase
+        .from('comprovantes')
+        .update({
+          status: 'rejeitado',
+          motivo_rejeicao: motivo,
+          validado_por: adminId,
+          data_validacao: new Date().toISOString()
+        })
+        .eq('id', comprovanteId);
+      
+      if (error) throw error;
+      
+      await get().loadComprovantes();
+      return true;
+    } catch (error) {
+      console.error('Erro ao rejeitar comprovante:', error);
+      throw error;
     }
   },
 
@@ -449,7 +586,8 @@ export const useAppStore = create((set, get) => ({
         get().loadMensalidades(),
         get().loadEmprestimos(),
         get().loadRifas(),
-        get().loadCdi()
+        get().loadCdi(),
+        get().loadComprovantes()
       ]);
       set({ isOnline: true });
     } catch (error) {
