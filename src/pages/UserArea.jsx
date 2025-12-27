@@ -208,7 +208,28 @@ const UserArea = () => {
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Valor (R$)</label><input type="number" step="0.01" value={comprovanteData.valor_informado} onChange={(e) => setComprovanteData({ ...comprovanteData, valor_informado: e.target.value })} className="w-full px-3 py-2 border rounded-lg" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Comprovante</label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                  {comprovanteData.arquivo ? <div className="flex items-center justify-between"><span className="text-sm truncate max-w-[200px]">{comprovanteData.arquivo.name}</span><button onClick={() => setComprovanteData({ ...comprovanteData, arquivo: null })} className="text-red-500"><X size={20} /></button></div> : <label className="cursor-pointer"><div className="flex flex-col items-center gap-2"><Camera className="text-gray-400" size={32} /><span className="text-sm text-gray-500">Clique para selecionar</span></div><input type="file" accept="image/*,.pdf" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && setComprovanteData({ ...comprovanteData, arquivo: e.target.files[0] })} /></label>}
+                  {comprovanteData.arquivo ? (
+  <div className="space-y-2">
+    {comprovanteData.arquivo.type.startsWith('image/') ? (
+      <img 
+        src={URL.createObjectURL(comprovanteData.arquivo)} 
+        alt="Preview" 
+        className="max-h-40 mx-auto rounded-lg border"
+      />
+    ) : (
+      <div className="flex items-center justify-center gap-2 p-4 bg-red-50 rounded-lg">
+        <FileText className="text-red-500" size={32} />
+        <span className="text-sm text-gray-700">PDF</span>
+      </div>
+    )}
+    <div className="flex items-center justify-between">
+      <span className="text-sm truncate max-w-[200px]">{comprovanteData.arquivo.name}</span>
+      <button onClick={() => setComprovanteData({ ...comprovanteData, arquivo: null })} className="text-red-500">
+        <X size={20} />
+      </button>
+    </div>
+  </div>
+) : <label className="cursor-pointer"><div className="flex flex-col items-center gap-2"><Camera className="text-gray-400" size={32} /><span className="text-sm text-gray-500">Clique para selecionar</span></div><input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && setComprovanteData({ ...comprovanteData, arquivo: e.target.files[0] })} /></label>}
                 </div>
               </div>
               {uploadProgress > 0 && <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-600 h-2 rounded-full" style={{ width: `${uploadProgress}%` }} /></div>}
