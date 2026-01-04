@@ -6,11 +6,10 @@ import {
 import { useAuthStore, useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency } from '../utils/formatters';
-import { CONFIG } from '../utils/constants';
 
 const Gerenciamento = () => {
   const { cotista } = useAuthStore();
-  const { cotistas, loadCotistas, loadMensalidades } = useAppStore();
+  const { cotistas, loadCotistas, loadMensalidades, loadConfiguracoes: loadConfiguracoesStore } = useAppStore();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -77,6 +76,9 @@ const Gerenciamento = () => {
 
         if (error) throw error;
       }
+
+      // Recarregar configurações no store global
+      await loadConfiguracoesStore();
 
       setSuccess('Configurações salvas com sucesso!');
       setTimeout(() => setSuccess(''), 3000);

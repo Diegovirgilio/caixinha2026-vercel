@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   FileCheck, Clock, CheckCircle, XCircle, Eye, Download,
-  Search, Filter, Loader2, X, AlertTriangle, Image, FileText
+  Search, Filter, Loader2, X, AlertTriangle, Image, FileText,
+  Upload, Plus, Camera
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -9,19 +10,32 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 
 const Comprovantes = () => {
   const { cotista } = useAuthStore();
-  const { comprovantes, loadComprovantes, aprovarComprovante, rejeitarComprovante } = useAppStore();
+  const { comprovantes, loadComprovantes, aprovarComprovante, rejeitarComprovante, cotistas, mensalidades, emprestimos, loadCotistas, loadMensalidades, loadEmprestimos } = useAppStore();
   const [filtroStatus, setFiltroStatus] = useState('pendente');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [showEnviarModal, setShowEnviarModal] = useState(false);
   const [selectedComprovante, setSelectedComprovante] = useState(null);
   const [valorAprovado, setValorAprovado] = useState('');
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+  
+  // Estado para enviar comprovante
+  const [enviarData, setEnviarData] = useState({
+    cotista_id: '',
+    tipo: 'mensalidade',
+    mes_referencia: '',
+    valor_informado: '',
+    arquivo: null
+  });
 
   useEffect(() => {
     loadComprovantes();
+    loadCotistas();
+    loadMensalidades();
+    loadEmprestimos();
   }, []);
 
   // Filtrar comprovantes
@@ -114,6 +128,69 @@ const Comprovantes = () => {
     return <Image className="text-blue-500" size={20} />;
   };
 
+  // Cotistas ativos (não admin)
+  const cotistasAtivos = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
+
+  // Função para enviar comprovante (admin)
+  const handleEnviarComprovante = async () => {
+    if (!enviarData.cotista_id) {
+      setError('Selecione um cotista');
+      return;
+    }
+    if (!enviarData.valor_informado || parseFloat(enviarData.valor_informado) <= 0) {
+      setError('Informe o valor do pagamento');
+      return;
+    }
+    if (!enviarData.arquivo) {
+      setError('Selecione um arquivo');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      // Upload do arquivo
+      const file = enviarData.arquivo;
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${enviarData.cotista_id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from('comprovantes')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('comprovantes')
+        .getPublicUrl(fileName);
+
+      // Criar registro do comprovante
+      const { error: insertError } = await supabase
+        .from('comprovantes')
+        .insert({
+          cotista_id: enviarData.cotista_id,
+          tipo: enviarData.tipo,
+          mes_referencia: enviarData.mes_referencia || null,
+          valor_informado: parseFloat(enviarData.valor_informado),
+          arquivo_url: urlData.publicUrl,
+          status: 'pendente'
+        });
+
+      if (insertError) throw insertError;
+
+      await loadComprovantes();
+      setShowEnviarModal(false);
+      setEnviarData({ cotista_id: '', tipo: 'mensalidade', mes_referencia: '', valor_informado: '', arquivo: null });
+      setSuccess('Comprovante enviado com sucesso!');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message || 'Erro ao enviar comprovante');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -127,6 +204,13 @@ const Comprovantes = () => {
             Validação de comprovantes de pagamento
           </p>
         </div>
+        <button
+          onClick={() => setShowEnviarModal(true)}
+          className="bg-green-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-green-700"
+        >
+          <Upload size={20} />
+          Enviar Comprovante
+        </button>
       </div>
 
       {/* Mensagens */}
@@ -432,6 +516,115 @@ const Comprovantes = () => {
                 {loading ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
                 Aprovar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Enviar Comprovante */}
+      {showEnviarModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+            <div className="bg-gradient-to-r from-green-500 to-teal-500 p-6">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <Upload size={24} />
+                  Enviar Comprovante
+                </h3>
+                <button onClick={() => setShowEnviarModal(false)} className="text-white/80 hover:text-white">
+                  <X size={24} />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {error && (
+                <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Cotista *</label>
+                <select
+                  value={enviarData.cotista_id}
+                  onChange={(e) => setEnviarData({ ...enviarData, cotista_id: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="">Selecione...</option>
+                  {cotistasAtivos.map(c => (
+                    <option key={c.id} value={c.id}>{c.nome}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                <select
+                  value={enviarData.tipo}
+                  onChange={(e) => setEnviarData({ ...enviarData, tipo: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                >
+                  <option value="mensalidade">Mensalidade</option>
+                  <option value="emprestimo">Empréstimo</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Mês Referência</label>
+                <input
+                  type="text"
+                  value={enviarData.mes_referencia}
+                  onChange={(e) => setEnviarData({ ...enviarData, mes_referencia: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  placeholder="Ex: 01/2026"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Valor *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={enviarData.valor_informado}
+                  onChange={(e) => setEnviarData({ ...enviarData, valor_informado: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Comprovante *</label>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => setEnviarData({ ...enviarData, arquivo: e.target.files[0] })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                />
+                {enviarData.arquivo && (
+                  <p className="text-xs text-green-600 mt-1">
+                    ✓ {enviarData.arquivo.name}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => setShowEnviarModal(false)}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEnviarComprovante}
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+                  Enviar
+                </button>
+              </div>
             </div>
           </div>
         </div>

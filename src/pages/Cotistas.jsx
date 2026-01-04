@@ -2,15 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Edit2, Trash2, UserCheck, UserX,
   ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info,
-  Mail, Clock, CheckCircle, RefreshCw
+  Mail, CheckCircle, RefreshCw, Phone, Clock
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency } from '../utils/formatters';
-import { CONFIG } from '../utils/constants';
 
 const Cotistas = () => {
-  const { cotistas, loadCotistas } = useAppStore();
+  const { cotistas, loadCotistas, configuracoes } = useAppStore();
   const [pendentes, setPendentes] = useState([]);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('nome');
@@ -27,14 +26,13 @@ const Cotistas = () => {
     loadPendentes();
   }, []);
 
-  // Carregar cotistas pendentes de confirmação
+  // Carregar cotistas pendentes de aprovação
   const loadPendentes = async () => {
     try {
       const { data, error } = await supabase
         .from('cotistas')
         .select('*')
-        .eq('email_confirmado', false)
-        .not('user_id', 'is', null)
+        .eq('status', 'pendente')
         .order('created_at', { ascending: false });
       
       if (!error) {
@@ -104,13 +102,21 @@ const Cotistas = () => {
       setError('Nome é obrigatório');
       return;
     }
-    if (formData.cotas < 1 || formData.cotas > 50) {
-      setError('Cotas deve ser entre 1 e 50');
+    
+    // Admin pode ter 0 cotas, cotistas precisam ter pelo menos 1
+    const isAdmin = editingCotista?.is_admin || false;
+    const minCotas = isAdmin ? 0 : 1;
+    
+    if (formData.cotas < minCotas || formData.cotas > 50) {
+      setError(`Cotas deve ser entre ${minCotas} e 50`);
       return;
     }
 
     setLoading(true);
     try {
+      const valorPorCota = parseFloat(configuracoes?.valor_por_cota || 50);
+      const novoValorDevido = parseInt(formData.cotas) * valorPorCota;
+      
       if (editingCotista) {
         // Atualizar cotista existente
         const { data, error: updateError } = await supabase
@@ -129,6 +135,19 @@ const Cotistas = () => {
           throw updateError;
         }
         
+        // Se mudou o número de cotas, atualizar todas as mensalidades pendentes
+        if (editingCotista.cotas !== parseInt(formData.cotas)) {
+          const { error: mensalidadeError } = await supabase
+            .from('mensalidades')
+            .update({ valor_devido: novoValorDevido })
+            .eq('cotista_id', editingCotista.id)
+            .in('status', ['pendente', 'parcial']);
+          
+          if (mensalidadeError) {
+            console.error('Erro ao atualizar mensalidades:', mensalidadeError);
+          }
+        }
+        
         console.log('Update result:', data);
         setSuccess('Cotista atualizado com sucesso!');
       } else {
@@ -140,7 +159,7 @@ const Cotistas = () => {
             email: formData.email || null,
             cotas: parseInt(formData.cotas),
             telefone: formData.telefone || null,
-            is_admin: false, // Cotista nunca é admin
+            is_admin: false,
             status: 'ativo'
           })
           .select();
@@ -232,20 +251,44 @@ const Cotistas = () => {
     }
   };
 
-  // Aprovar manualmente um cotista pendente (confirmar email)
+  // Aprovar cotista pendente
   const handleAprovarPendente = async (cotista) => {
-    if (!confirm(`Aprovar "${cotista.nome}" manualmente?\n\nIsso confirmará o cadastro mesmo sem a verificação de email.`)) {
+    if (!confirm(`Aprovar "${cotista.nome}"?\n\nO cotista poderá acessar o sistema.`)) {
       return;
     }
 
     setLoading(true);
     try {
+      // Atualizar status do cotista para ativo
       const { error: updateError } = await supabase
         .from('cotistas')
-        .update({ email_confirmado: true })
+        .update({ status: 'ativo' })
         .eq('id', cotista.id);
 
       if (updateError) throw updateError;
+
+      // Confirmar email no Supabase Auth (usando o email do cotista)
+      const emailFake = `${cotista.nome.toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
+      try {
+        await supabase.rpc('confirm_user_email', { user_email: emailFake });
+      } catch (rpcError) {
+        console.log('RPC não disponível:', rpcError);
+      }
+
+      // Buscar valor por cota das configurações
+      const valorPorCota = parseFloat(configuracoes?.valor_por_cota || 50);
+      
+      // Gerar mensalidades para o cotista aprovado
+      const { CONFIG } = await import('../utils/constants');
+      const mensalidades = CONFIG.MESES.map(mes => ({
+        cotista_id: cotista.id,
+        mes_referencia: mes,
+        valor_devido: (cotista.cotas || 1) * valorPorCota,
+        valor_pago: 0,
+        status: 'pendente'
+      }));
+      
+      await supabase.from('mensalidades').insert(mensalidades);
 
       await loadCotistas();
       await loadPendentes();
@@ -259,21 +302,15 @@ const Cotistas = () => {
     }
   };
 
-  // Excluir cotista pendente
-  const handleExcluirPendente = async (cotista) => {
-    if (!confirm(`Excluir "${cotista.nome}"?\n\nEste usuário não confirmou o email e será removido do sistema.`)) {
+  // Rejeitar/Excluir cotista pendente
+  const handleRejeitarPendente = async (cotista) => {
+    if (!confirm(`Rejeitar "${cotista.nome}"?\n\nO cadastro será excluído permanentemente.`)) {
       return;
     }
 
     setLoading(true);
     try {
-      // Primeiro deletar mensalidades associadas
-      await supabase
-        .from('mensalidades')
-        .delete()
-        .eq('cotista_id', cotista.id);
-
-      // Depois deletar o cotista
+      // Deletar o cotista
       const { error: deleteError } = await supabase
         .from('cotistas')
         .delete()
@@ -282,7 +319,7 @@ const Cotistas = () => {
       if (deleteError) throw deleteError;
 
       await loadPendentes();
-      setSuccess(`${cotista.nome} excluído!`);
+      setSuccess(`Cadastro de ${cotista.nome} rejeitado!`);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message);
@@ -339,16 +376,15 @@ const Cotistas = () => {
         </div>
       )}
 
-      {/* Pendentes de Confirmação */}
+      {/* Pendentes de Aprovação */}
       {pendentes.length > 0 && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
           <h2 className="font-semibold text-yellow-800 flex items-center gap-2 mb-4">
             <Clock size={20} />
-            Aguardando Confirmação de Email ({pendentes.length})
+            Aguardando Aprovação ({pendentes.length})
           </h2>
           <p className="text-sm text-yellow-700 mb-4">
-            Estes usuários se cadastraram mas ainda não confirmaram o email. 
-            Você pode aprová-los manualmente ou excluí-los.
+            Estes usuários se cadastraram e aguardam sua aprovação para acessar o sistema.
           </p>
           <div className="space-y-2">
             {pendentes.map((p) => (
@@ -359,7 +395,7 @@ const Cotistas = () => {
                   </div>
                   <div>
                     <p className="font-medium text-gray-800">{p.nome}</p>
-                    <p className="text-sm text-gray-500">{p.email} • {p.cotas} cotas</p>
+                    <p className="text-sm text-gray-500">{p.cotas || 1} cotas</p>
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -372,12 +408,12 @@ const Cotistas = () => {
                     Aprovar
                   </button>
                   <button
-                    onClick={() => handleExcluirPendente(p)}
+                    onClick={() => handleRejeitarPendente(p)}
                     disabled={loading}
                     className="px-3 py-1.5 bg-red-600 text-white rounded-lg hover:bg-red-700 flex items-center gap-1 text-sm disabled:opacity-50"
                   >
                     <Trash2 size={16} />
-                    Excluir
+                    Rejeitar
                   </button>
                 </div>
               </div>
@@ -461,7 +497,7 @@ const Cotistas = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
-                    {formatCurrency(cotista.cotas * CONFIG.VALOR_POR_COTA)}
+                    {formatCurrency(cotista.cotas * parseFloat(configuracoes?.valor_por_cota || 50))}
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -576,14 +612,14 @@ const Cotistas = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Número de Cotas *</label>
                 <input
                   type="number"
-                  min="1"
+                  min={editingCotista?.is_admin ? "0" : "1"}
                   max="50"
                   value={formData.cotas}
-                  onChange={(e) => setFormData({ ...formData, cotas: parseInt(e.target.value) || 1 })}
+                  onChange={(e) => setFormData({ ...formData, cotas: parseInt(e.target.value) || 0 })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Mensalidade: {formatCurrency(formData.cotas * CONFIG.VALOR_POR_COTA)}
+                  Mensalidade: {formatCurrency(formData.cotas * parseFloat(configuracoes?.valor_por_cota || 50))}
                 </p>
               </div>
             </div>

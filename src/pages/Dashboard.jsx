@@ -6,10 +6,9 @@ import {
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { dashboardApi } from '../services/api';
 import { formatCurrency, formatPercent } from '../utils/formatters';
-import { CONFIG } from '../utils/constants';
 
 const Dashboard = () => {
-  const { cotistas, emprestimos, rifas, cdi, getTotalCotas, getTotalInvestido } = useAppStore();
+  const { cotistas, emprestimos, rifas, cdi, getTotalCotas, getTotalInvestido, configuracoes } = useAppStore();
   const { cotista } = useAuthStore();
   const [resumo, setResumo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -144,7 +143,7 @@ const Dashboard = () => {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Valor por Cota</span>
-              <span className="font-medium">{formatCurrency(CONFIG.VALOR_POR_COTA)}</span>
+              <span className="font-medium">{formatCurrency(parseFloat(configuracoes?.valor_por_cota || 50))}</span>
             </div>
           </div>
         </div>
@@ -166,7 +165,7 @@ const Dashboard = () => {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Taxa À Vista</span>
-              <span className="font-medium">{CONFIG.JUROS_VISTA}%</span>
+              <span className="font-medium">{configuracoes?.juros_vista || 20}%</span>
             </div>
           </div>
         </div>

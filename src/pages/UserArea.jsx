@@ -8,11 +8,11 @@ import { useAuthStore, useAppStore, useUIStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { emprestimosApi, mensalidadesApi } from '../services/api';
 import { formatCurrency, formatPercent, formatMesReferencia } from '../utils/formatters';
-import { CONFIG, STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_LABELS } from '../utils/constants';
+import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_LABELS } from '../utils/constants';
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
-  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes } = useAppStore();
+  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes } = useAppStore();
   const { setShowPixModal, setShowChangePasswordModal } = useUIStore();
   
   const [minhasMensalidades, setMinhasMensalidades] = useState([]);
@@ -62,7 +62,9 @@ const UserArea = () => {
     return total + bonus;
   }, 0);
   const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI;
-  const taxaJuros = solicitacao.tipo === 'vista' ? CONFIG.JUROS_VISTA : CONFIG.JUROS_PARCELADO;
+  const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
+  const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+  const taxaJuros = solicitacao.tipo === 'vista' ? jurosVista : jurosParcelado;
   const valorEmprestimo = parseFloat(solicitacao.valor) || 0;
   const valorJuros = valorEmprestimo * (taxaJuros / 100);
   const valorTotal = valorEmprestimo + valorJuros;
@@ -178,7 +180,7 @@ const UserArea = () => {
           <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Valor</label><input type="number" value={solicitacao.valor} onChange={(e) => setSolicitacao({ ...solicitacao, valor: e.target.value })} className="w-full px-4 py-2 border rounded-lg" placeholder="0,00" /><p className="text-xs text-gray-500 mt-1">Limite: {formatCurrency(limite)}</p></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label><select value={solicitacao.tipo} onChange={(e) => setSolicitacao({ ...solicitacao, tipo: e.target.value })} className="w-full px-4 py-2 border rounded-lg"><option value="vista">À Vista ({CONFIG.JUROS_VISTA}%)</option><option value="parcelado">Parcelado ({CONFIG.JUROS_PARCELADO}%)</option></select></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label><select value={solicitacao.tipo} onChange={(e) => setSolicitacao({ ...solicitacao, tipo: e.target.value })} className="w-full px-4 py-2 border rounded-lg"><option value="vista">À Vista ({jurosVista}%)</option><option value="parcelado">Parcelado ({jurosParcelado}%)</option></select></div>
             </div>
             {valorEmprestimo > 0 && <div className="mt-4 p-3 bg-white rounded-lg border text-sm"><span className="text-gray-500">Total:</span> <span className="font-medium text-orange-600">{formatCurrency(valorTotal)}</span></div>}
             <div className="flex gap-3 mt-4"><button onClick={handleSolicitarEmprestimo} disabled={enviando} className="flex-1 bg-orange-500 text-white py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"><Send size={16} />{enviando ? 'Enviando...' : 'Enviar'}</button><button onClick={() => setShowSolicitacao(false)} className="px-4 py-2 border rounded-lg">Cancelar</button></div>
@@ -208,28 +210,7 @@ const UserArea = () => {
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Valor (R$)</label><input type="number" step="0.01" value={comprovanteData.valor_informado} onChange={(e) => setComprovanteData({ ...comprovanteData, valor_informado: e.target.value })} className="w-full px-3 py-2 border rounded-lg" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Comprovante</label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
-                  {comprovanteData.arquivo ? (
-  <div className="space-y-2">
-    {comprovanteData.arquivo.type.startsWith('image/') ? (
-      <img 
-        src={URL.createObjectURL(comprovanteData.arquivo)} 
-        alt="Preview" 
-        className="max-h-40 mx-auto rounded-lg border"
-      />
-    ) : (
-      <div className="flex items-center justify-center gap-2 p-4 bg-red-50 rounded-lg">
-        <FileText className="text-red-500" size={32} />
-        <span className="text-sm text-gray-700">PDF</span>
-      </div>
-    )}
-    <div className="flex items-center justify-between">
-      <span className="text-sm truncate max-w-[200px]">{comprovanteData.arquivo.name}</span>
-      <button onClick={() => setComprovanteData({ ...comprovanteData, arquivo: null })} className="text-red-500">
-        <X size={20} />
-      </button>
-    </div>
-  </div>
-) : <label className="cursor-pointer"><div className="flex flex-col items-center gap-2"><Camera className="text-gray-400" size={32} /><span className="text-sm text-gray-500">Clique para selecionar</span></div><input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && setComprovanteData({ ...comprovanteData, arquivo: e.target.files[0] })} /></label>}
+                  {comprovanteData.arquivo ? <div className="space-y-2">{comprovanteData.arquivo.type.startsWith('image/') ? <img src={URL.createObjectURL(comprovanteData.arquivo)} alt="Preview" className="max-h-40 mx-auto rounded-lg border" /> : <div className="flex items-center justify-center gap-2 p-4 bg-red-50 rounded-lg"><FileText className="text-red-500" size={32} /><span className="text-sm text-gray-700">PDF</span></div>}<div className="flex items-center justify-between"><span className="text-sm truncate max-w-[200px]">{comprovanteData.arquivo.name}</span><button onClick={() => setComprovanteData({ ...comprovanteData, arquivo: null })} className="text-red-500"><X size={20} /></button></div></div> : <label className="cursor-pointer"><div className="flex flex-col items-center gap-2"><Camera className="text-gray-400" size={32} /><span className="text-sm text-gray-500">Clique para selecionar</span></div><input type="file" accept="image/*,.pdf" className="hidden" onChange={(e) => e.target.files?.[0] && setComprovanteData({ ...comprovanteData, arquivo: e.target.files[0] })} /></label>}
                 </div>
               </div>
               {uploadProgress > 0 && <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-600 h-2 rounded-full" style={{ width: `${uploadProgress}%` }} /></div>}

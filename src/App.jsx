@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { 
   PiggyBank, TrendingUp, Users, Calendar, DollarSign, 
   FileText, Settings, Home, LogOut, FileCheck,
-  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle
+  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from './store/useStore';
 import { checkConnection } from './services/supabase';
@@ -22,11 +22,13 @@ import Comprovantes from './pages/Comprovantes';
 import { CONFIG } from './utils/constants';
 
 // Modal PIX
-const ModalPix = ({ onClose }) => {
+const ModalPix = ({ onClose, configuracoes }) => {
   const [copiado, setCopiado] = useState(false);
+  const pixChave = configuracoes?.pix_chave || '';
+  const pixNome = configuracoes?.pix_nome || '';
 
   const copiarChave = () => {
-    navigator.clipboard.writeText(CONFIG.PIX_CHAVE);
+    navigator.clipboard.writeText(pixChave);
     setCopiado(true);
     setTimeout(() => setCopiado(false), 3000);
   };
@@ -46,7 +48,8 @@ const ModalPix = ({ onClose }) => {
           </p>
           <div className="bg-gray-100 p-4 rounded-lg mb-4">
             <p className="text-xs text-gray-500 mb-1">Chave PIX (E-mail)</p>
-            <p className="font-mono text-gray-800 break-all">{CONFIG.PIX_CHAVE}</p>
+            <p className="font-mono text-gray-800 break-all">{pixChave}</p>
+            {pixNome && <p className="text-xs text-gray-500 mt-2">Titular: {pixNome}</p>}
           </div>
           <button
             onClick={copiarChave}
@@ -67,11 +70,127 @@ const ModalPix = ({ onClose }) => {
   );
 };
 
+// Modal Trocar Senha
+const ModalTrocarSenha = ({ onClose }) => {
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmarSenha, setConfirmarSenha] = useState('');
+  const [showSenhas, setShowSenhas] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [mensagem, setMensagem] = useState({ tipo: '', texto: '' });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setMensagem({ tipo: '', texto: '' });
+
+    if (novaSenha.length < 6) {
+      setMensagem({ tipo: 'erro', texto: 'A nova senha deve ter pelo menos 6 caracteres' });
+      return;
+    }
+
+    if (novaSenha !== confirmarSenha) {
+      setMensagem({ tipo: 'erro', texto: 'As senhas não coincidem' });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { supabase } = await import('./services/supabase');
+      const { error } = await supabase.auth.updateUser({ password: novaSenha });
+      
+      if (error) throw error;
+      
+      setMensagem({ tipo: 'sucesso', texto: 'Senha alterada com sucesso!' });
+      setTimeout(() => onClose(), 2000);
+    } catch (error) {
+      setMensagem({ tipo: 'erro', texto: error.message || 'Erro ao alterar senha' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-blue-500 to-indigo-500 p-6 text-center">
+          <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <Key className="text-white" size={32} />
+          </div>
+          <h3 className="text-xl font-bold text-white">Trocar Senha</h3>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {mensagem.texto && (
+            <div className={`p-3 rounded-lg text-sm ${
+              mensagem.tipo === 'erro' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
+            }`}>
+              {mensagem.texto}
+            </div>
+          )}
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nova Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type={showSenhas ? 'text' : 'password'}
+                value={novaSenha}
+                onChange={(e) => setNovaSenha(e.target.value)}
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Mínimo 6 caracteres"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowSenhas(!showSenhas)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+              >
+                {showSenhas ? <EyeOff size={20} /> : <Eye size={20} />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar Nova Senha</label>
+            <div className="relative">
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+              <input
+                type={showSenhas ? 'text' : 'password'}
+                value={confirmarSenha}
+                onChange={(e) => setConfirmarSenha(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder="Repita a nova senha"
+                required
+              />
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-gradient-to-r from-blue-500 to-indigo-500 text-white py-3 rounded-lg font-medium hover:from-blue-600 hover:to-indigo-600 disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {loading ? <Loader2 className="animate-spin" size={20} /> : <Key size={20} />}
+            {loading ? 'Alterando...' : 'Alterar Senha'}
+          </button>
+          
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full py-2 text-gray-600 hover:text-gray-800"
+          >
+            Cancelar
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const App = () => {
   // ==================== TODOS OS HOOKS PRIMEIRO ====================
   const { isAuthenticated, cotista, logout, checkAuth } = useAuthStore();
-  const { loadAllData, cotistas, isLoading: dataLoading } = useAppStore();
-  const { currentTab, setCurrentTab, showPixModal, setShowPixModal } = useUIStore();
+  const { loadAllData, cotistas, configuracoes, isLoading: dataLoading } = useAppStore();
+  const { currentTab, setCurrentTab, showPixModal, setShowPixModal, showChangePasswordModal, setShowChangePasswordModal } = useUIStore();
   
   const [appLoading, setAppLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
@@ -251,6 +370,13 @@ const App = () => {
                 <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg font-bold">
                   {cotista?.nome?.charAt(0)}
                 </div>
+                <button 
+                  onClick={() => setShowChangePasswordModal(true)} 
+                  className="p-2 hover:bg-white/10 rounded-lg" 
+                  title="Trocar Senha"
+                >
+                  <Key size={20} />
+                </button>
                 <button onClick={logout} className="p-2 hover:bg-white/10 rounded-lg" title="Sair">
                   <LogOut size={20} />
                 </button>
@@ -309,7 +435,10 @@ const App = () => {
       </footer>
 
       {/* Modal PIX */}
-      {showPixModal && <ModalPix onClose={() => setShowPixModal(false)} />}
+      {showPixModal && <ModalPix onClose={() => setShowPixModal(false)} configuracoes={configuracoes} />}
+      
+      {/* Modal Trocar Senha */}
+      {showChangePasswordModal && <ModalTrocarSenha onClose={() => setShowChangePasswordModal(false)} />}
     </div>
   );
 };

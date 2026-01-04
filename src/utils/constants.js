@@ -1,28 +1,13 @@
 // ==================== CONSTANTES DA APLICAÇÃO ====================
 
-// Configurações padrão
+// Configurações fixas (não mudam)
 export const CONFIG = {
   APP_NAME: 'Caixinha 2026',
   APP_VERSION: '2.0.0',
   
-  // Valores financeiros
-  VALOR_POR_COTA: 50,
-  JUROS_VISTA: 20,
-  JUROS_PARCELADO: 30,
-  LIMITE_EMPRESTIMO_PERCENT: 80,
-  MAX_PARCELAS: 3,
-  MIN_COTAS: 1,
-  MAX_COTAS: 50,
-  
-  // Período
-  DATA_INICIO: '2026-01-01',
-  DATA_FIM: '2026-11-30',
+  // Período - meses fixos do ano
   MESES: ['01/2026', '02/2026', '03/2026', '04/2026', '05/2026', '06/2026', 
-          '07/2026', '08/2026', '09/2026', '10/2026', '11/2026'],
-  
-  // PIX
-  PIX_CHAVE: 'cx.virgilio2026@gmail.com',
-  PIX_TIPO: 'email'
+          '07/2026', '08/2026', '09/2026', '10/2026', '11/2026']
 };
 
 // Status das mensalidades
@@ -84,27 +69,6 @@ export const TIPO_EMPRESTIMO = {
 export const TIPO_EMPRESTIMO_LABELS = {
   [TIPO_EMPRESTIMO.VISTA]: 'À Vista',
   [TIPO_EMPRESTIMO.PARCELADO]: 'Parcelado'
-};
-
-// Tipos de notificação
-export const TIPO_NOTIFICACAO = {
-  EMPRESTIMO_SOLICITADO: 'emprestimo_solicitado',
-  EMPRESTIMO_APROVADO: 'emprestimo_aprovado',
-  EMPRESTIMO_REJEITADO: 'emprestimo_rejeitado',
-  PAGAMENTO_VENCENDO: 'pagamento_vencendo',
-  PAGAMENTO_ATRASADO: 'pagamento_atrasado',
-  PAGAMENTO_CONFIRMADO: 'pagamento_confirmado',
-  NOVO_COTISTA: 'novo_cotista',
-  SISTEMA: 'sistema'
-};
-
-// Tipos de chave PIX
-export const TIPO_PIX = {
-  CPF: 'cpf',
-  CNPJ: 'cnpj',
-  EMAIL: 'email',
-  TELEFONE: 'telefone',
-  ALEATORIA: 'aleatoria'
 };
 
 // Meses por extenso

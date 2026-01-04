@@ -10,7 +10,7 @@ import { formatCurrency } from '../utils/formatters';
 import { CONFIG } from '../utils/constants';
 
 const Mensalidades = () => {
-  const { cotistas, mensalidades, loadCotistas, loadMensalidades } = useAppStore();
+  const { cotistas, mensalidades, loadCotistas, loadMensalidades, configuracoes } = useAppStore();
   const [mesSelecionado, setMesSelecionado] = useState(CONFIG.MESES[0]);
   const [search, setSearch] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
@@ -268,7 +268,7 @@ const Mensalidades = () => {
       const mensalidadesParaInserir = cotistasAtivos.map(c => ({
         cotista_id: c.id,
         mes_referencia: mesSelecionado,
-        valor_devido: c.cotas * CONFIG.VALOR_POR_COTA,
+        valor_devido: c.cotas * parseFloat(configuracoes?.valor_por_cota || 50),
         valor_pago: 0,
         status: 'pendente'
       }));
@@ -597,7 +597,7 @@ const Mensalidades = () => {
                           setFormData({ 
                             ...formData, 
                             cotista_id: e.target.value,
-                            valor_devido: cotista ? cotista.cotas * CONFIG.VALOR_POR_COTA : ''
+                            valor_devido: cotista ? cotista.cotas * parseFloat(configuracoes?.valor_por_cota || 50) : ''
                           });
                         }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"

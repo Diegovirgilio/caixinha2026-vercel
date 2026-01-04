@@ -31,6 +31,12 @@ export const useAuthStore = create((set, get) => ({
       
       if (cotistaError) throw cotistaError;
       
+      // Verificar se foi aprovado pelo admin
+      if (cotista.status === 'pendente') {
+        await supabase.auth.signOut();
+        throw new Error('Seu cadastro ainda não foi aprovado pelo administrador. Aguarde a aprovação.');
+      }
+      
       set({ user: data.user, cotista, isAuthenticated: true, isLoading: false });
       return { user: data.user, cotista };
     } catch (error) {
@@ -56,8 +62,13 @@ export const useAuthStore = create((set, get) => ({
         throw new Error('Usuário não encontrado');
       }
       
+      // Verificar se foi aprovado
+      if (cotista.status === 'pendente') {
+        throw new Error('Seu cadastro ainda não foi aprovado pelo administrador. Aguarde a aprovação.');
+      }
+      
       if (!cotista.email) {
-        throw new Error('Este usuário não possui email cadastrado. Faça login com email.');
+        throw new Error('Este usuário não possui credenciais. Contate o administrador.');
       }
       
       // Fazer login com o email do cotista
@@ -77,57 +88,50 @@ export const useAuthStore = create((set, get) => ({
     }
   },
 
-  // Registro de novo usuário
-  register: async ({ email, password, nome, cotas }) => {
+  // Registro de novo usuário (nome + senha, aguarda aprovação)
+  register: async ({ password, nome, cotas }) => {
     set({ isLoading: true, error: null });
     
     try {
       // Verificar se nome já existe
-      const { data: existente } = await supabase
+      const { data: existenteNome } = await supabase
         .from('cotistas')
         .select('nome')
         .ilike('nome', nome)
         .single();
       
-      if (existente) {
-        throw new Error(`Já existe um usuário com o nome "${nome}". Por favor, adicione seu sobrenome para diferenciar.`);
+      if (existenteNome) {
+        throw new Error(`Já existe um usuário com o nome "${nome}". Por favor, use nome e sobrenome.`);
       }
+      
+      // Criar email fake baseado no nome (para Supabase Auth)
+      const emailFake = `${nome.toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
       
       // Criar usuário no Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: emailFake,
         password
       });
       
       if (authError) throw authError;
       
-      // Criar registro na tabela cotistas (ainda não confirmado)
+      // Criar registro na tabela cotistas com status PENDENTE
       const { data: cotista, error: cotistaError } = await supabase
         .from('cotistas')
         .insert({
           user_id: authData.user?.id,
           nome,
-          email,
+          email: emailFake,
           cotas: parseInt(cotas) || 1,
           is_admin: false,
-          status: 'ativo',
-          email_confirmado: false // Só será true após confirmar email
+          status: 'pendente' // Aguarda aprovação do admin
         })
         .select()
         .single();
       
       if (cotistaError) throw cotistaError;
       
-      // Gerar mensalidades para o novo cotista
-      const mensalidades = CONFIG.MESES.map(mes => ({
-        cotista_id: cotista.id,
-        mes_referencia: mes,
-        valor_devido: (parseInt(cotas) || 1) * CONFIG.VALOR_POR_COTA,
-        valor_pago: 0,
-        status: 'pendente'
-      }));
-      
-      await supabase.from('mensalidades').insert(mensalidades);
+      // NÃO gera mensalidades aqui - será gerado quando admin aprovar
       
       set({ isLoading: false });
       return { user: authData.user, cotista };
@@ -183,20 +187,56 @@ export const useAppStore = create((set, get) => ({
   cdi: [],
   comprovantes: [],
   comprovantes_pendentes: 0,
+  configuracoes: {},
   config: { ...CONFIG },
   isLoading: false,
   isOnline: true,
+
+  // ===== CONFIGURAÇÕES =====
+  loadConfiguracoes: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('configuracoes')
+        .select('*');
+      
+      if (error) throw error;
+      
+      const config = {};
+      (data || []).forEach(c => {
+        config[c.chave] = c.valor;
+      });
+      set({ configuracoes: config });
+      return config;
+    } catch (error) {
+      console.error('Erro ao carregar configurações:', error);
+      return {};
+    }
+  },
+
+  updateConfiguracao: async (chave, valor) => {
+    try {
+      const { error } = await supabase
+        .from('configuracoes')
+        .update({ valor, updated_at: new Date().toISOString() })
+        .eq('chave', chave);
+      
+      if (error) throw error;
+      await get().loadConfiguracoes();
+      return true;
+    } catch (error) {
+      console.error('Erro ao atualizar configuração:', error);
+      throw error;
+    }
+  },
 
   // ===== COTISTAS =====
   setCotistas: (cotistas) => set({ cotistas }),
 
   loadCotistas: async () => {
     try {
-      // Buscar apenas cotistas com email confirmado (ou criados manualmente pelo admin)
       const { data, error } = await supabase
         .from('cotistas')
         .select('*')
-        .or('email_confirmado.eq.true,user_id.is.null')
         .order('nome');
       
       if (error) throw error;
@@ -582,6 +622,7 @@ export const useAppStore = create((set, get) => ({
     
     try {
       await Promise.all([
+        get().loadConfiguracoes(),
         get().loadCotistas(),
         get().loadMensalidades(),
         get().loadEmprestimos(),
@@ -631,7 +672,9 @@ export const useAppStore = create((set, get) => ({
 
   getLimiteEmprestimo: (cotistaId) => {
     const investido = get().getInvestidoByCotista(cotistaId);
-    return investido * 0.8;
+    const { configuracoes } = get();
+    const percentual = parseFloat(configuracoes.limite_emprestimo_percent || 80) / 100;
+    return investido * percentual;
   }
 }));
 

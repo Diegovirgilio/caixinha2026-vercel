@@ -6,11 +6,10 @@ import {
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { CONFIG } from '../utils/constants';
 
 const Emprestimos = () => {
   const { cotista } = useAuthStore();
-  const { emprestimos, loadEmprestimos, cotistas, mensalidades } = useAppStore();
+  const { emprestimos, loadEmprestimos, cotistas, mensalidades, configuracoes } = useAppStore();
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -143,7 +142,9 @@ const Emprestimos = () => {
 
     setLoading(true);
     try {
-      const taxa = formData.tipo === 'vista' ? CONFIG.JUROS_VISTA : CONFIG.JUROS_PARCELADO;
+      const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
+      const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+      const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
       const valorJuros = valor * (taxa / 100);
       const valorTotal = valor + valorJuros;
       const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) : 1;
@@ -185,7 +186,9 @@ const Emprestimos = () => {
 
     setLoading(true);
     try {
-      const taxa = formData.tipo === 'vista' ? CONFIG.JUROS_VISTA : CONFIG.JUROS_PARCELADO;
+      const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
+      const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+      const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
       const valorJuros = valor * (taxa / 100);
       const valorTotal = valor + valorJuros;
       const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) : 1;
@@ -323,7 +326,9 @@ const Emprestimos = () => {
   // Calcular preview de valores
   const calcularPreview = () => {
     const valor = parseFloat(formData.valor_emprestimo) || 0;
-    const taxa = formData.tipo === 'vista' ? CONFIG.JUROS_VISTA : CONFIG.JUROS_PARCELADO;
+    const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
+    const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+    const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
     const valorJuros = valor * (taxa / 100);
     const valorTotal = valor + valorJuros;
     const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) || 1 : 1;
@@ -729,8 +734,8 @@ const Emprestimos = () => {
                       onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
-                      <option value="vista">À Vista ({CONFIG.JUROS_VISTA}% juros)</option>
-                      <option value="parcelado">Parcelado ({CONFIG.JUROS_PARCELADO}% juros)</option>
+                      <option value="vista">À Vista ({configuracoes?.juros_vista || 20}% juros)</option>
+                      <option value="parcelado">Parcelado ({configuracoes?.juros_parcelado || 30}% juros)</option>
                     </select>
                   </div>
 
