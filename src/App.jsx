@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { 
   PiggyBank, TrendingUp, Users, Calendar, DollarSign, 
   FileText, Settings, Home, LogOut, FileCheck,
-  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff
+  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff, Download, Smartphone
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from './store/useStore';
 import { checkConnection } from './services/supabase';
@@ -195,6 +195,35 @@ const App = () => {
   const [appLoading, setAppLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+
+  // Effect para capturar evento de instalação PWA
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      // Mostrar banner apenas se não estiver instalado
+      if (!window.matchMedia('(display-mode: standalone)').matches) {
+        setShowInstallBanner(true);
+      }
+    };
+    
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+    }
+    setDeferredPrompt(null);
+  };
 
   // Effect 1: Inicializar app
   useEffect(() => {
@@ -439,6 +468,36 @@ const App = () => {
       
       {/* Modal Trocar Senha */}
       {showChangePasswordModal && <ModalTrocarSenha onClose={() => setShowChangePasswordModal(false)} />}
+
+      {/* Banner Instalar App */}
+      {showInstallBanner && (
+        <div className="fixed bottom-4 left-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between gap-4 max-w-lg mx-auto">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
+              <Smartphone size={24} />
+            </div>
+            <div>
+              <p className="font-bold">Instalar App</p>
+              <p className="text-sm text-blue-200">Acesse mais rápido pelo celular</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowInstallBanner(false)}
+              className="px-3 py-2 text-sm text-blue-200 hover:text-white"
+            >
+              Agora não
+            </button>
+            <button
+              onClick={handleInstallClick}
+              className="px-4 py-2 bg-white text-blue-600 rounded-lg font-medium hover:bg-blue-50 flex items-center gap-2"
+            >
+              <Download size={18} />
+              Instalar
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
