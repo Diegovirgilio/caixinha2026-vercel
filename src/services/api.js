@@ -433,24 +433,32 @@ export const notificacoesApi = {
 export const dashboardApi = {
   async getResumoGeral() {
     const [cotistas, mensalidades, emprestimos, rifas, cdi] = await Promise.all([
-      supabase.from('cotistas').select('cotas').eq('status', 'ativo'),
-      supabase.from('mensalidades').select('valor_pago, valor_devido'),
-      supabase.from('emprestimos').select('valor_emprestimo, valor_juros, status'),
+      supabase.from('cotistas').select('id, cotas, is_admin').eq('status', 'ativo'),
+      supabase.from('mensalidades').select('valor_pago, valor_devido, cotista_id'),
+      supabase.from('emprestimos').select('valor_emprestimo, valor_juros, status, cotista_id'),
       supabase.from('rifas').select('valor'),
       supabase.from('cdi').select('valor')
     ]);
 
-    const totalCotas = cotistas.data?.reduce((sum, c) => sum + c.cotas, 0) || 0;
-    const totalInvestido = mensalidades.data?.reduce((sum, m) => sum + Number(m.valor_pago), 0) || 0;
-    const totalDevido = mensalidades.data?.reduce((sum, m) => sum + Number(m.valor_devido), 0) || 0;
-    const totalEmprestimosAtivos = emprestimos.data?.filter(e => e.status === 'ativo').reduce((sum, e) => sum + Number(e.valor_emprestimo), 0) || 0;
-    const totalJuros = emprestimos.data?.filter(e => e.status === 'pago').reduce((sum, e) => sum + Number(e.valor_juros), 0) || 0;
-    const totalRifas = rifas.data?.reduce((sum, r) => sum + Number(r.valor), 0) || 0;
-    const totalCDI = cdi.data?.reduce((sum, c) => sum + Number(c.valor), 0) || 0;
+    // IDs dos admins para excluir
+    const adminIds = (cotistas.data || []).filter(c => c.is_admin).map(c => c.id);
+    
+    // Filtrar apenas cotistas não-admin
+    const cotistasNaoAdmin = (cotistas.data || []).filter(c => !c.is_admin);
+    const mensalidadesNaoAdmin = (mensalidades.data || []).filter(m => !adminIds.includes(m.cotista_id));
+    const emprestimosNaoAdmin = (emprestimos.data || []).filter(e => !adminIds.includes(e.cotista_id));
+
+    const totalCotas = cotistasNaoAdmin.reduce((sum, c) => sum + (c.cotas || 0), 0);
+    const totalInvestido = mensalidadesNaoAdmin.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+    const totalDevido = mensalidadesNaoAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
+    const totalEmprestimosAtivos = emprestimosNaoAdmin.filter(e => e.status === 'ativo').reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+    const totalJuros = emprestimosNaoAdmin.filter(e => e.status === 'pago').reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
+    const totalRifas = (rifas.data || []).reduce((sum, r) => sum + Number(r.valor || 0), 0);
+    const totalCDI = (cdi.data || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
 
     return {
       totalCotas,
-      totalCotistas: cotistas.data?.length || 0,
+      totalCotistas: cotistasNaoAdmin.length,
       totalInvestido,
       totalDevido,
       totalEmprestimosAtivos,

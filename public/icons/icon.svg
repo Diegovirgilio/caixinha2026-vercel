@@ -5,44 +5,24 @@
       <stop offset="100%" style="stop-color:#3b82f6"/>
     </linearGradient>
   </defs>
-  
-  <!-- Fundo -->
   <rect width="512" height="512" rx="96" fill="url(#bg)"/>
-  
-  <!-- Cofrinho (piggy bank) -->
-  <g transform="translate(256, 256)">
-    <!-- Corpo do cofrinho -->
+  <g transform="translate(256, 240)">
     <ellipse cx="0" cy="20" rx="120" ry="90" fill="#fbbf24"/>
     <ellipse cx="0" cy="20" rx="110" ry="80" fill="#fcd34d"/>
-    
-    <!-- Orelhas -->
     <ellipse cx="-70" cy="-50" rx="25" ry="35" fill="#fbbf24" transform="rotate(-20)"/>
     <ellipse cx="70" cy="-50" rx="25" ry="35" fill="#fbbf24" transform="rotate(20)"/>
-    
-    <!-- Focinho -->
     <ellipse cx="100" cy="30" rx="35" ry="28" fill="#f59e0b"/>
     <circle cx="90" cy="25" r="6" fill="#1f2937"/>
     <circle cx="110" cy="25" r="6" fill="#1f2937"/>
-    
-    <!-- Olho -->
     <circle cx="40" cy="-10" r="15" fill="white"/>
     <circle cx="43" cy="-10" r="8" fill="#1f2937"/>
-    <circle cx="46" cy="-13" r="3" fill="white"/>
-    
-    <!-- Fenda para moeda -->
     <rect x="-30" y="-70" width="60" height="12" rx="6" fill="#1f2937"/>
-    
-    <!-- Pernas -->
     <rect x="-80" y="85" width="25" height="35" rx="8" fill="#f59e0b"/>
     <rect x="-30" y="85" width="25" height="35" rx="8" fill="#f59e0b"/>
     <rect x="20" y="85" width="25" height="35" rx="8" fill="#f59e0b"/>
     <rect x="55" y="85" width="25" height="35" rx="8" fill="#f59e0b"/>
-    
-    <!-- Moeda entrando -->
     <circle cx="0" cy="-100" r="30" fill="#22c55e"/>
     <text x="0" y="-92" text-anchor="middle" fill="white" font-size="28" font-weight="bold">$</text>
   </g>
-  
-  <!-- Texto 2026 -->
   <text x="256" y="480" text-anchor="middle" fill="white" font-size="48" font-weight="bold" font-family="Arial">2026</text>
 </svg>

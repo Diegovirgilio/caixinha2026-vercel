@@ -37,7 +37,7 @@ const UserArea = () => {
         ]);
         setMinhasMensalidades(mensalidades || []);
         setMeusEmprestimos(emprestimosData || []);
-        setMeusComprovantes(comprovantes.filter(c => c.cotista_id === cotista.id));
+        setMeusComprovantes((comprovantes || []).filter(c => c.cotista_id === cotista.id));
       } catch (error) {
         console.error('Erro ao carregar dados:', error);
       } finally {
@@ -51,11 +51,11 @@ const UserArea = () => {
   const investido = getInvestidoByCotista(cotista?.id);
   const limite = getLimiteEmprestimo(cotista?.id);
   const participacao = totalCotas > 0 ? ((cotista?.cotas || 0) / totalCotas) * 100 : 0;
-  const totalRifas = rifas.reduce((s, r) => s + Number(r.valor || 0), 0);
-  const totalCDI = cdi.reduce((s, c) => s + Number(c.valor || 0), 0);
+  const totalRifas = (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0);
+  const totalCDI = (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0);
   const bonusRifas = (totalRifas * participacao) / 100;
   const bonusCDI = (totalCDI * participacao) / 100;
-  const jurosRecebidos = emprestimos.filter(e => e.status === 'pago').reduce((total, emp) => {
+  const jurosRecebidos = (emprestimos || []).filter(e => e.status === 'pago').reduce((total, emp) => {
     const jurosTotal = Number(emp.valor_juros || 0);
     let bonus = emp.cotista_id === cotista?.id ? jurosTotal * 0.6 : 0;
     bonus += (jurosTotal * 0.4 * participacao) / 100;

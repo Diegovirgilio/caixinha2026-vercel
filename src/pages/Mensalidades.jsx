@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Check, Clock, AlertCircle, Search, Filter,
-  ChevronLeft, ChevronRight, Loader2, X, DollarSign, CheckCircle,
+  Loader2, X, DollarSign, CheckCircle,
   Edit2, Trash2, Plus, RefreshCw
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency } from '../utils/formatters';
-import { CONFIG } from '../utils/constants';
 
 const Mensalidades = () => {
   const { cotistas, mensalidades, loadCotistas, loadMensalidades, configuracoes } = useAppStore();
-  const [mesSelecionado, setMesSelecionado] = useState(CONFIG.MESES[0]);
+  const [mesSelecionado, setMesSelecionado] = useState('01');
+  const [anoSelecionado, setAnoSelecionado] = useState('2026');
   const [search, setSearch] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [loading, setLoading] = useState(false);
@@ -21,6 +21,26 @@ const Mensalidades = () => {
   const [valorPagamento, setValorPagamento] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
+
+  // Mês no formato MM/YYYY (igual ao banco)
+  const mesAnoFormatado = `${mesSelecionado}/${anoSelecionado}`;
+
+  // Opções de meses
+  const mesesOpcoes = [
+    { valor: '01', nome: 'Janeiro' },
+    { valor: '02', nome: 'Fevereiro' },
+    { valor: '03', nome: 'Março' },
+    { valor: '04', nome: 'Abril' },
+    { valor: '05', nome: 'Maio' },
+    { valor: '06', nome: 'Junho' },
+    { valor: '07', nome: 'Julho' },
+    { valor: '08', nome: 'Agosto' },
+    { valor: '09', nome: 'Setembro' },
+    { valor: '10', nome: 'Outubro' },
+    { valor: '11', nome: 'Novembro' }
+  ];
+  
+  const anosOpcoes = ['2026'];
 
   // Form para editar/adicionar
   const [formData, setFormData] = useState({
@@ -36,16 +56,16 @@ const Mensalidades = () => {
   }, []);
 
   // Filtrar apenas cotistas (não admins)
-  const apenasContistas = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
+  const apenasContistas = (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo');
 
   // Dados do mês selecionado
-  const mensalidadesMes = mensalidades[mesSelecionado] || [];
+  const mensalidadesMes = mensalidades[mesAnoFormatado] || [];
 
   // Filtrar mensalidades (excluindo admins)
   const mensalidadesFiltradas = mensalidadesMes
     .filter(m => {
       // Excluir mensalidades de admins
-      const cotista = cotistas.find(c => c.id === m.cotista_id);
+      const cotista = (cotistas || []).find(c => c.id === m.cotista_id);
       if (cotista?.is_admin) return false;
       
       const matchSearch = m.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
@@ -55,7 +75,7 @@ const Mensalidades = () => {
 
   // Estatísticas do mês (apenas cotistas, não admins)
   const mensalidadesSemAdmin = mensalidadesMes.filter(m => {
-    const cotista = cotistas.find(c => c.id === m.cotista_id);
+    const cotista = (cotistas || []).find(c => c.id === m.cotista_id);
     return !cotista?.is_admin;
   });
 
@@ -66,20 +86,6 @@ const Mensalidades = () => {
     pendentes: mensalidadesSemAdmin.filter(m => m.status === 'pendente').length,
     valorEsperado: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0),
     valorRecebido: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0)
-  };
-
-  const navegarMes = (direcao) => {
-    const index = CONFIG.MESES.indexOf(mesSelecionado);
-    const novoIndex = index + direcao;
-    if (novoIndex >= 0 && novoIndex < CONFIG.MESES.length) {
-      setMesSelecionado(CONFIG.MESES[novoIndex]);
-    }
-  };
-
-  const formatarMes = (mes) => {
-    const [ano, m] = mes.split('-');
-    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-    return `${meses[parseInt(m) - 1]}/${ano}`;
   };
 
   // Abrir modal de pagamento
@@ -210,7 +216,7 @@ const Mensalidades = () => {
         .from('mensalidades')
         .insert({
           cotista_id: formData.cotista_id,
-          mes_referencia: mesSelecionado,
+          mes_referencia: mesAnoFormatado,
           valor_devido: valorDevido,
           valor_pago: parseFloat(formData.valor_pago) || 0,
           status: formData.status
@@ -267,7 +273,7 @@ const Mensalidades = () => {
       
       const mensalidadesParaInserir = cotistasAtivos.map(c => ({
         cotista_id: c.id,
-        mes_referencia: mesSelecionado,
+        mes_referencia: mesAnoFormatado,
         valor_devido: c.cotas * parseFloat(configuracoes?.valor_por_cota || 50),
         valor_pago: 0,
         status: 'pendente'
@@ -322,25 +328,26 @@ const Mensalidades = () => {
           </p>
         </div>
         
-        {/* Navegação de Mês */}
-        <div className="flex items-center gap-2 bg-white rounded-lg shadow px-2 py-1">
-          <button 
-            onClick={() => navegarMes(-1)}
-            disabled={CONFIG.MESES.indexOf(mesSelecionado) === 0}
-            className="p-2 hover:bg-gray-100 rounded disabled:opacity-30"
+        {/* Seleção de Mês e Ano */}
+        <div className="flex items-center gap-2">
+          <select
+            value={mesSelecionado}
+            onChange={(e) => setMesSelecionado(e.target.value)}
+            className="px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 font-medium"
           >
-            <ChevronLeft size={20} />
-          </button>
-          <span className="font-medium text-gray-800 min-w-[100px] text-center">
-            {formatarMes(mesSelecionado)}
-          </span>
-          <button 
-            onClick={() => navegarMes(1)}
-            disabled={CONFIG.MESES.indexOf(mesSelecionado) === CONFIG.MESES.length - 1}
-            className="p-2 hover:bg-gray-100 rounded disabled:opacity-30"
+            {mesesOpcoes.map(m => (
+              <option key={m.valor} value={m.valor}>{m.nome}</option>
+            ))}
+          </select>
+          <select
+            value={anoSelecionado}
+            onChange={(e) => setAnoSelecionado(e.target.value)}
+            className="px-3 py-2 bg-white border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 font-medium"
           >
-            <ChevronRight size={20} />
-          </button>
+            {anosOpcoes.map(a => (
+              <option key={a} value={a}>{a}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -418,6 +425,13 @@ const Mensalidades = () => {
             </button>
           </div>
         </div>
+        
+        {/* Contador de resultados */}
+        {(search || filtroStatus !== 'todos') && (
+          <div className="mt-3 text-sm text-gray-500">
+            Exibindo <span className="font-medium text-gray-700">{mensalidadesFiltradas.length}</span> de <span className="font-medium text-gray-700">{mensalidadesMes.length}</span> registros
+          </div>
+        )}
       </div>
 
       {/* Tabela */}

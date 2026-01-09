@@ -668,12 +668,18 @@ export const useAppStore = create((set, get) => ({
   },
 
   getTotalInvestido: () => {
-    const { mensalidades } = get();
+    const { mensalidades, cotistas } = get();
+    // IDs dos admins para excluir
+    const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
+    
     let total = 0;
     Object.values(mensalidades).forEach(mes => {
       if (Array.isArray(mes)) {
         mes.forEach(m => {
-          total += Number(m.valor_pago || 0);
+          // Excluir mensalidades de admins
+          if (!adminIds.includes(m.cotista_id)) {
+            total += Number(m.valor_pago || 0);
+          }
         });
       }
     });

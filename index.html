@@ -6,22 +6,17 @@
     <meta name="description" content="Caixinha 2026 - Sistema de Gestão Financeira Colaborativa" />
     <meta name="theme-color" content="#1e40af" />
     
-    <!-- PWA Meta Tags -->
+    <!-- PWA -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Caixinha 2026" />
-    
-    <!-- Manifest -->
     <link rel="manifest" href="/manifest.json" />
-    
-    <!-- Favicon e Ícones -->
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
     
     <title>Caixinha 2026</title>
     
-    <!-- Estilo para tela de loading -->
     <style>
       #app-loading {
         position: fixed;
@@ -48,27 +43,20 @@
         color: white;
         margin-top: 20px;
         font-family: Arial, sans-serif;
-        font-size: 16px;
       }
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
+      @keyframes spin { to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
-    <!-- Tela de loading enquanto app carrega -->
     <div id="app-loading">
       <div class="spinner"></div>
       <p>Carregando...</p>
     </div>
     
     <div id="root"></div>
-    
     <script type="module" src="/src/main.jsx"></script>
     
-    <!-- Registrar Service Worker -->
     <script>
-      // Remover tela de loading quando app carregar
       window.addEventListener('load', () => {
         const loading = document.getElementById('app-loading');
         if (loading) {
@@ -78,20 +66,13 @@
             setTimeout(() => loading.remove(), 300);
           }, 500);
         }
-      });
-      
-      // Registrar Service Worker para PWA
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        
+        if ('serviceWorker' in navigator) {
           navigator.serviceWorker.register('/sw.js')
-            .then((registration) => {
-              console.log('SW registrado:', registration.scope);
-            })
-            .catch((error) => {
-              console.log('SW falhou:', error);
-            });
-        });
-      }
+            .then(r => console.log('SW registrado:', r.scope))
+            .catch(e => console.log('SW falhou:', e));
+        }
+      });
     </script>
   </body>
 </html>

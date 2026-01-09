@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { 
   PiggyBank, TrendingUp, Users, Calendar, DollarSign, 
   FileText, Settings, Home, LogOut, FileCheck,
-  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff, Download, Smartphone
+  Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff,
+  Download, Smartphone, X
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from './store/useStore';
 import { checkConnection } from './services/supabase';
@@ -198,30 +199,24 @@ const App = () => {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
 
-  // Effect para capturar evento de instalação PWA
+  // Effect PWA: Capturar evento de instalação
   useEffect(() => {
     const handler = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Mostrar banner apenas se não estiver instalado
       if (!window.matchMedia('(display-mode: standalone)').matches) {
         setShowInstallBanner(true);
       }
     };
-    
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
-    
     deferredPrompt.prompt();
     const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
-    }
+    if (outcome === 'accepted') setShowInstallBanner(false);
     setDeferredPrompt(null);
   };
 
@@ -281,7 +276,7 @@ const App = () => {
   ];
 
   const tabs = cotista?.is_admin ? adminTabs : userTabs;
-  const totalCotas = cotistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
+  const totalCotas = (cotistas || []).reduce((sum, c) => sum + (c.cotas || 0), 0);
 
   // Renderizar conteúdo
   const renderContent = () => {
@@ -469,30 +464,30 @@ const App = () => {
       {/* Modal Trocar Senha */}
       {showChangePasswordModal && <ModalTrocarSenha onClose={() => setShowChangePasswordModal(false)} />}
 
-      {/* Banner Instalar App */}
+      {/* Banner Instalar App PWA */}
       {showInstallBanner && (
-        <div className="fixed bottom-4 left-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between gap-4 max-w-lg mx-auto">
+        <div className="fixed bottom-4 left-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between gap-3 max-w-md mx-auto">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-              <Smartphone size={24} />
+            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
+              <Smartphone size={22} />
             </div>
             <div>
-              <p className="font-bold">Instalar App</p>
-              <p className="text-sm text-blue-200">Acesse mais rápido pelo celular</p>
+              <p className="font-bold text-sm">Instalar App</p>
+              <p className="text-xs text-blue-200">Acesso rápido na tela inicial</p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => setShowInstallBanner(false)}
-              className="px-3 py-2 text-sm text-blue-200 hover:text-white"
+              className="p-2 hover:bg-white/10 rounded-lg"
             >
-              Agora não
+              <X size={18} />
             </button>
             <button
               onClick={handleInstallClick}
-              className="px-4 py-2 bg-white text-blue-600 rounded-lg font-medium hover:bg-blue-50 flex items-center gap-2"
+              className="px-3 py-2 bg-white text-blue-600 rounded-lg font-medium text-sm hover:bg-blue-50 flex items-center gap-1"
             >
-              <Download size={18} />
+              <Download size={16} />
               Instalar
             </button>
           </div>

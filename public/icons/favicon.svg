@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="512" height="512"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1e40af"></stop>
+      <stop offset="100%" style="stop-color:#3b82f6"></stop>
+    </linearGradient>
+  </defs>
+  
+  <!-- Fundo -->
+  <rect width="512" height="512" rx="96" fill="url(#bg)"></rect>
+  
+  <!-- Cofrinho (piggy bank) -->
+  <g transform="translate(256, 256)">
+    <!-- Corpo do cofrinho -->
+    <ellipse cx="0" cy="20" rx="120" ry="90" fill="#fbbf24"></ellipse>
+    <ellipse cx="0" cy="20" rx="110" ry="80" fill="#fcd34d"></ellipse>
+    
+    <!-- Orelhas -->
+    <ellipse cx="-70" cy="-50" rx="25" ry="35" fill="#fbbf24" transform="rotate(-20)"></ellipse>
+    <ellipse cx="70" cy="-50" rx="25" ry="35" fill="#fbbf24" transform="rotate(20)"></ellipse>
+    
+    <!-- Focinho -->
+    <ellipse cx="100" cy="30" rx="35" ry="28" fill="#f59e0b"></ellipse>
+    <circle cx="90" cy="25" r="6" fill="#1f2937"></circle>
+    <circle cx="110" cy="25" r="6" fill="#1f2937"></circle>
+    
+    <!-- Olho -->
+    <circle cx="40" cy="-10" r="15" fill="white"></circle>
+    <circle cx="43" cy="-10" r="8" fill="#1f2937"></circle>
+    <circle cx="46" cy="-13" r="3" fill="white"></circle>
+    
+    <!-- Fenda para moeda -->
+    <rect x="-30" y="-70" width="60" height="12" rx="6" fill="#1f2937"></rect>
+    
+    <!-- Pernas -->
+    <rect x="-80" y="85" width="25" height="35" rx="8" fill="#f59e0b"></rect>
+    <rect x="-30" y="85" width="25" height="35" rx="8" fill="#f59e0b"></rect>
+    <rect x="20" y="85" width="25" height="35" rx="8" fill="#f59e0b"></rect>
+    <rect x="55" y="85" width="25" height="35" rx="8" fill="#f59e0b"></rect>
+    
+    <!-- Moeda entrando -->
+    <circle cx="0" cy="-100" r="30" fill="#22c55e"></circle>
+    <text x="0" y="-92" text-anchor="middle" fill="white" font-size="28" font-weight="bold">$</text>
+  </g>
+  
+  <!-- Texto 2026 -->
+  <text x="256" y="480" text-anchor="middle" fill="white" font-size="48" font-weight="bold" font-family="Arial">2026</text>
+</svg></svg><style>@media (prefers-color-scheme: light) { :root { filter: none; } }
+@media (prefers-color-scheme: dark) { :root { filter: none; } }
+</style></svg>

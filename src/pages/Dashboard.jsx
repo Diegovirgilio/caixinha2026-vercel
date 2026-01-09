@@ -14,7 +14,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
 
   // Filtrar apenas cotistas (não admins)
-  const apenasContistas = cotistas.filter(c => !c.is_admin);
+  const apenasContistas = (cotistas || []).filter(c => !c.is_admin);
   const totalCotasCalc = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
   useEffect(() => {
@@ -29,10 +29,10 @@ const Dashboard = () => {
           totalCotas: totalCotasCalc,
           totalCotistas: apenasContistas.length,
           totalInvestido: getTotalInvestido(),
-          totalEmprestimosAtivos: emprestimos.filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
-          totalJuros: emprestimos.filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
-          totalRifas: rifas.reduce((s, r) => s + Number(r.valor || 0), 0),
-          totalCDI: cdi.reduce((s, c) => s + Number(c.valor || 0), 0)
+          totalEmprestimosAtivos: (emprestimos || []).filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
+          totalJuros: (emprestimos || []).filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
+          totalRifas: (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0),
+          totalCDI: (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0)
         });
       } finally {
         setLoading(false);
@@ -45,8 +45,8 @@ const Dashboard = () => {
   const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0);
   
   // Empréstimos pendentes de aprovação (excluindo admins)
-  const emprestimosPendentes = emprestimos.filter(e => {
-    const cotistaEmprestimo = cotistas.find(c => c.id === e.cotista_id);
+  const emprestimosPendentes = (emprestimos || []).filter(e => {
+    const cotistaEmprestimo = (cotistas || []).find(c => c.id === e.cotista_id);
     return e.status === 'pendente' && !cotistaEmprestimo?.is_admin;
   });
 
