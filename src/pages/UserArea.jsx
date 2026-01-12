@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, TrendingUp, Clock, CheckCircle, AlertCircle,
   Plus, Send, Key, PiggyBank, Calendar, FileText, Upload,
-  X, Loader2, Image, Camera
+  X, Loader2, Image, Camera, Gift, Hash, Trophy
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -12,7 +12,7 @@ import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
-  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes } = useAppStore();
+  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios } = useAppStore();
   const { setShowPixModal, setShowChangePasswordModal } = useUIStore();
   
   const [minhasMensalidades, setMinhasMensalidades] = useState([]);
@@ -198,6 +198,76 @@ const UserArea = () => {
               </div>
             </div>
           ))}</div>
+        )}
+      </div>
+
+      {/* Seção de Rifa */}
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+            <Gift className="text-purple-600" />
+            Rifa Mensal
+          </h2>
+          {cotista?.participa_rifa && (
+            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium">
+              Participando
+            </span>
+          )}
+        </div>
+
+        {cotista?.participa_rifa ? (
+          <div className="space-y-4">
+            {/* Meus Números */}
+            <div>
+              <p className="text-sm text-gray-600 mb-2">Seus números da sorte:</p>
+              <div className="flex flex-wrap gap-2">
+                {getNumerosRifaByCotista(cotista?.id).map(n => (
+                  <span 
+                    key={n.id}
+                    className="px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-mono font-bold text-lg"
+                  >
+                    {n.numero}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-gray-500 mt-2">
+                {cotista?.cotas} cota(s) × 2 números = {(cotista?.cotas || 0) * 2} números
+              </p>
+            </div>
+
+            {/* Valor mensal */}
+            <div className="bg-purple-50 rounded-lg p-3">
+              <p className="text-sm text-purple-700">
+                <strong>Valor mensal:</strong> {formatCurrency((cotista?.cotas || 0) * 20)}
+                <span className="text-purple-500 ml-2">(R$ 20 por cota)</span>
+              </p>
+            </div>
+
+            {/* Último sorteio */}
+            {rifaSorteios && rifaSorteios.length > 0 && (
+              <div className="border-t pt-4">
+                <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+                  <Trophy size={16} className="text-yellow-500" />
+                  Último sorteio: {rifaSorteios[0].mes_referencia}
+                </p>
+                {rifaSorteios[0].cotista_vencedor_id ? (
+                  <p className="text-sm text-gray-600">
+                    Vencedor: <strong>{rifaSorteios[0].cotista_vencedor?.nome}</strong> 
+                    {' '}com o número <span className="font-mono bg-yellow-100 px-2 py-0.5 rounded">{rifaSorteios[0].numero_vencedor}</span>
+                    {' '}- Prêmio: <strong className="text-green-600">{formatCurrency(rifaSorteios[0].valor_premio)}</strong>
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-500">Nenhum vencedor neste mês</p>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center py-6 text-gray-500">
+            <Gift size={40} className="mx-auto mb-3 text-gray-300" />
+            <p>Você não participa da rifa</p>
+            <p className="text-sm mt-1">Fale com o administrador para participar</p>
+          </div>
         )}
       </div>
 

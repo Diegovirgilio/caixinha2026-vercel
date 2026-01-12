@@ -16,6 +16,7 @@ import Cotistas from './pages/Cotistas';
 import Mensalidades from './pages/Mensalidades';
 import Emprestimos from './pages/Emprestimos';
 import RifasCdi from './pages/RifasCdi';
+import Rifas from './pages/Rifas';
 import Relatorio from './pages/Relatorio';
 import Gerenciamento from './pages/Gerenciamento';
 import Comprovantes from './pages/Comprovantes';
@@ -266,7 +267,8 @@ const App = () => {
     { id: 'mensalidades', label: 'Mensalidades', icon: Calendar },
     { id: 'emprestimos', label: 'Empréstimos', icon: DollarSign },
     { id: 'comprovantes', label: 'Comprovantes', icon: FileCheck, badge: comprovantes_pendentes },
-    { id: 'rifas', label: 'Rifas & CDI', icon: PiggyBank },
+    { id: 'rifas', label: 'Rifas', icon: PiggyBank },
+    { id: 'cdi', label: 'CDI', icon: TrendingUp },
     { id: 'relatorio', label: 'Relatório', icon: FileText },
     { id: 'gerenciamento', label: 'Gerenciamento', icon: Settings }
   ];
@@ -294,6 +296,8 @@ const App = () => {
       case 'comprovantes':
         return <Comprovantes />;
       case 'rifas':
+        return <Rifas />;
+      case 'cdi':
         return <RifasCdi />;
       case 'relatorio':
         return <Relatorio />;

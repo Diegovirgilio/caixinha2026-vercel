@@ -2,14 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Edit2, Trash2, UserCheck, UserX,
   ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info,
-  Mail, CheckCircle, RefreshCw, Phone, Clock
+  Mail, CheckCircle, RefreshCw, Phone, Clock, Gift, Hash
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency } from '../utils/formatters';
 
 const Cotistas = () => {
-  const { cotistas, loadCotistas, configuracoes } = useAppStore();
+  const { 
+    cotistas, 
+    loadCotistas, 
+    configuracoes,
+    rifaNumeros,
+    loadRifaNumeros,
+    ativarRifaCotista,
+    desativarRifaCotista,
+    ajustarNumerosRifa,
+    getNumerosRifaByCotista
+  } = useAppStore();
   const [pendentes, setPendentes] = useState([]);
   const [search, setSearch] = useState('');
   const [sortField, setSortField] = useState('nome');
@@ -17,13 +27,15 @@ const Cotistas = () => {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingCotista, setEditingCotista] = useState(null);
-  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '' });
+  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loadingRifa, setLoadingRifa] = useState(null); // ID do cotista com loading
 
   useEffect(() => {
     loadCotistas();
     loadPendentes();
+    loadRifaNumeros();
   }, []);
 
   // Carregar cotistas pendentes de aprovação
@@ -146,6 +158,11 @@ const Cotistas = () => {
           if (mensalidadeError) {
             console.error('Erro ao atualizar mensalidades:', mensalidadeError);
           }
+          
+          // Se participa da rifa, ajustar números
+          if (editingCotista.participa_rifa) {
+            await ajustarNumerosRifa(editingCotista.id, editingCotista.cotas, parseInt(formData.cotas));
+          }
         }
         
         console.log('Update result:', data);
@@ -248,6 +265,29 @@ const Cotistas = () => {
       setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Toggle participação na rifa
+  const handleToggleRifa = async (cotista) => {
+    setLoadingRifa(cotista.id);
+    try {
+      if (cotista.participa_rifa) {
+        // Desativar - deleta números
+        await desativarRifaCotista(cotista.id);
+        setSuccess(`${cotista.nome} removido da rifa`);
+      } else {
+        // Ativar - gera números
+        const numeros = await ativarRifaCotista(cotista.id, cotista.cotas);
+        setSuccess(`${cotista.nome} adicionado à rifa com ${numeros.length} números`);
+      }
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      console.error('Erro ao alterar rifa:', err);
+      setError(err.message || 'Erro ao alterar participação na rifa');
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setLoadingRifa(null);
     }
   };
 
@@ -468,6 +508,9 @@ const Cotistas = () => {
                   Status
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Rifa
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Ações
                 </th>
               </tr>
@@ -507,6 +550,39 @@ const Cotistas = () => {
                     }`}>
                       {cotista.status === 'ativo' ? 'Ativo' : 'Inativo'}
                     </span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex flex-col items-center gap-1">
+                      <button
+                        onClick={() => handleToggleRifa(cotista)}
+                        disabled={loadingRifa === cotista.id || cotista.status !== 'ativo'}
+                        className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${
+                          cotista.participa_rifa
+                            ? 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                        } disabled:opacity-50`}
+                        title={cotista.participa_rifa ? 'Remover da rifa' : 'Adicionar à rifa'}
+                      >
+                        {loadingRifa === cotista.id ? (
+                          <Loader2 className="animate-spin" size={12} />
+                        ) : (
+                          <Gift size={12} />
+                        )}
+                        {cotista.participa_rifa ? 'Participa' : 'Não participa'}
+                      </button>
+                      {cotista.participa_rifa && (
+                        <div className="flex gap-1 flex-wrap justify-center">
+                          {getNumerosRifaByCotista(cotista.id).slice(0, 4).map(n => (
+                            <span key={n.id} className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded text-xs font-mono">
+                              {n.numero}
+                            </span>
+                          ))}
+                          {getNumerosRifaByCotista(cotista.id).length > 4 && (
+                            <span className="text-xs text-gray-400">+{getNumerosRifaByCotista(cotista.id).length - 4}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2">

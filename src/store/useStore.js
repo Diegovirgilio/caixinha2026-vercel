@@ -650,7 +650,9 @@ export const useAppStore = create((set, get) => ({
         get().loadEmprestimos(),
         get().loadRifas(),
         get().loadCdi(),
-        get().loadComprovantes()
+        get().loadComprovantes(),
+        get().loadRifaNumeros(),
+        get().loadRifaSorteios()
       ]);
       set({ isOnline: true });
     } catch (error) {
@@ -703,6 +705,295 @@ export const useAppStore = create((set, get) => ({
     const { configuracoes } = get();
     const percentual = parseFloat(configuracoes.limite_emprestimo_percent || 80) / 100;
     return investido * percentual;
+  },
+
+  // ===== SISTEMA DE RIFAS =====
+  rifaNumeros: [],
+  rifaSorteios: [],
+
+  // Carregar números da rifa
+  loadRifaNumeros: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rifa_numeros')
+        .select('*, cotista:cotistas(id, nome)')
+        .eq('ativo', true)
+        .order('numero');
+      
+      if (error) throw error;
+      set({ rifaNumeros: data || [] });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar números da rifa:', error);
+      return [];
+    }
+  },
+
+  // Carregar sorteios
+  loadRifaSorteios: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rifa_sorteios')
+        .select('*, cotista_vencedor:cotistas(id, nome)')
+        .order('mes_referencia', { ascending: false });
+      
+      if (error) throw error;
+      set({ rifaSorteios: data || [] });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar sorteios:', error);
+      return [];
+    }
+  },
+
+  // Obter números de um cotista
+  getNumerosRifaByCotista: (cotistaId) => {
+    const { rifaNumeros } = get();
+    return (rifaNumeros || []).filter(n => n.cotista_id === cotistaId);
+  },
+
+  // Ativar rifa para cotista (gera números)
+  ativarRifaCotista: async (cotistaId, cotas) => {
+    try {
+      const quantidade = cotas * 2; // 2 números por cota
+      
+      // Gerar números únicos
+      const numerosGerados = [];
+      const { rifaNumeros } = get();
+      const numerosExistentes = new Set((rifaNumeros || []).map(n => n.numero));
+      
+      while (numerosGerados.length < quantidade) {
+        const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+        if (!numerosExistentes.has(numero) && !numerosGerados.includes(numero)) {
+          numerosGerados.push(numero);
+        }
+      }
+      
+      // Inserir números no banco
+      const numerosParaInserir = numerosGerados.map(numero => ({
+        cotista_id: cotistaId,
+        numero,
+        ativo: true
+      }));
+      
+      const { error: insertError } = await supabase
+        .from('rifa_numeros')
+        .insert(numerosParaInserir);
+      
+      if (insertError) throw insertError;
+      
+      // Atualizar flag do cotista
+      const { error: updateError } = await supabase
+        .from('cotistas')
+        .update({ participa_rifa: true })
+        .eq('id', cotistaId);
+      
+      if (updateError) throw updateError;
+      
+      // Recarregar dados
+      await get().loadRifaNumeros();
+      await get().loadCotistas();
+      
+      return numerosGerados;
+    } catch (error) {
+      console.error('Erro ao ativar rifa:', error);
+      throw error;
+    }
+  },
+
+  // Desativar rifa para cotista (deleta números)
+  desativarRifaCotista: async (cotistaId) => {
+    try {
+      // Deletar todos os números do cotista
+      const { error: deleteError } = await supabase
+        .from('rifa_numeros')
+        .delete()
+        .eq('cotista_id', cotistaId);
+      
+      if (deleteError) throw deleteError;
+      
+      // Atualizar flag do cotista
+      const { error: updateError } = await supabase
+        .from('cotistas')
+        .update({ participa_rifa: false })
+        .eq('id', cotistaId);
+      
+      if (updateError) throw updateError;
+      
+      // Recarregar dados
+      await get().loadRifaNumeros();
+      await get().loadCotistas();
+    } catch (error) {
+      console.error('Erro ao desativar rifa:', error);
+      throw error;
+    }
+  },
+
+  // Ajustar números quando cotas mudam
+  ajustarNumerosRifa: async (cotistaId, cotasAntigas, cotasNovas) => {
+    try {
+      const numerosAtuais = get().getNumerosRifaByCotista(cotistaId);
+      const numerosNecessarios = cotasNovas * 2;
+      const diferenca = numerosNecessarios - numerosAtuais.length;
+      
+      if (diferenca > 0) {
+        // Precisa gerar mais números
+        const { rifaNumeros } = get();
+        const numerosExistentes = new Set((rifaNumeros || []).map(n => n.numero));
+        const numerosGerados = [];
+        
+        while (numerosGerados.length < diferenca) {
+          const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+          if (!numerosExistentes.has(numero) && !numerosGerados.includes(numero)) {
+            numerosGerados.push(numero);
+          }
+        }
+        
+        const numerosParaInserir = numerosGerados.map(numero => ({
+          cotista_id: cotistaId,
+          numero,
+          ativo: true
+        }));
+        
+        await supabase.from('rifa_numeros').insert(numerosParaInserir);
+      } else if (diferenca < 0) {
+        // Precisa remover números
+        const numerosParaRemover = numerosAtuais
+          .sort(() => Math.random() - 0.5)
+          .slice(0, Math.abs(diferenca));
+        
+        for (const num of numerosParaRemover) {
+          await supabase.from('rifa_numeros').delete().eq('id', num.id);
+        }
+      }
+      
+      await get().loadRifaNumeros();
+    } catch (error) {
+      console.error('Erro ao ajustar números:', error);
+      throw error;
+    }
+  },
+
+  // Realizar sorteio
+  realizarSorteio: async (mesReferencia, dataSorteio, resultadoFederal) => {
+    try {
+      const { rifaNumeros, cotistas } = get();
+      
+      // Participantes ativos
+      const participantes = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin);
+      const numerosAtivos = (rifaNumeros || []).filter(n => n.ativo);
+      
+      // Calcular valores
+      const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
+      const valorArrecadado = totalCotas * 20; // R$ 20 por cota
+      const valorPremio = valorArrecadado * 0.20; // 20%
+      const valorCaixinha = valorArrecadado * 0.80; // 80%
+      
+      // Extrair números da Federal (5 prêmios)
+      const premios = [
+        resultadoFederal.primeiro,
+        resultadoFederal.segundo,
+        resultadoFederal.terceiro,
+        resultadoFederal.quarto,
+        resultadoFederal.quinto
+      ];
+      
+      let numeroVencedor = null;
+      let cotistaVencedor = null;
+      const premiosVerificados = [];
+      
+      // 1. Verificar últimos 3 dígitos
+      for (const premio of premios) {
+        const ultimos3 = premio.slice(-3);
+        premiosVerificados.push({ premio, tipo: 'ultimos3', numero: ultimos3 });
+        
+        const match = numerosAtivos.find(n => n.numero === ultimos3);
+        if (match) {
+          numeroVencedor = ultimos3;
+          cotistaVencedor = match.cotista_id;
+          break;
+        }
+      }
+      
+      // 2. Se não achou, verificar primeiros 3 dígitos
+      if (!numeroVencedor) {
+        for (const premio of premios) {
+          const primeiros3 = premio.slice(0, 3);
+          premiosVerificados.push({ premio, tipo: 'primeiros3', numero: primeiros3 });
+          
+          const match = numerosAtivos.find(n => n.numero === primeiros3);
+          if (match) {
+            numeroVencedor = primeiros3;
+            cotistaVencedor = match.cotista_id;
+            break;
+          }
+        }
+      }
+      
+      // Registrar sorteio
+      const sorteioData = {
+        mes_referencia: mesReferencia,
+        data_sorteio: dataSorteio,
+        numero_vencedor: numeroVencedor,
+        cotista_vencedor_id: cotistaVencedor,
+        valor_arrecadado: valorArrecadado,
+        valor_premio: cotistaVencedor ? valorPremio : 0,
+        valor_caixinha: cotistaVencedor ? valorCaixinha : valorArrecadado,
+        resultado_federal: resultadoFederal,
+        premios_verificados: premiosVerificados
+      };
+      
+      const { error: sorteioError } = await supabase
+        .from('rifa_sorteios')
+        .insert(sorteioData);
+      
+      if (sorteioError) throw sorteioError;
+      
+      // Se houve vencedor, processar vitória
+      if (cotistaVencedor && numeroVencedor) {
+        // Remover número vencedor
+        await supabase
+          .from('rifa_numeros')
+          .delete()
+          .eq('cotista_id', cotistaVencedor)
+          .eq('numero', numeroVencedor);
+        
+        // Remover 1 número aleatório adicional
+        const numerosRestantes = numerosAtivos.filter(
+          n => n.cotista_id === cotistaVencedor && n.numero !== numeroVencedor
+        );
+        
+        if (numerosRestantes.length > 0) {
+          const numeroAleatorio = numerosRestantes[Math.floor(Math.random() * numerosRestantes.length)];
+          await supabase.from('rifa_numeros').delete().eq('id', numeroAleatorio.id);
+        }
+        
+        // Verificar se cotista ainda tem números
+        await get().loadRifaNumeros();
+        const numerosAtualizados = get().getNumerosRifaByCotista(cotistaVencedor);
+        
+        if (numerosAtualizados.length === 0) {
+          await supabase
+            .from('cotistas')
+            .update({ participa_rifa: false })
+            .eq('id', cotistaVencedor);
+          
+          await get().loadCotistas();
+        }
+      }
+      
+      await get().loadRifaSorteios();
+      
+      return {
+        vencedor: cotistaVencedor,
+        numero: numeroVencedor,
+        premio: cotistaVencedor ? valorPremio : 0,
+        caixinha: cotistaVencedor ? valorCaixinha : valorArrecadado
+      };
+    } catch (error) {
+      console.error('Erro ao realizar sorteio:', error);
+      throw error;
+    }
   }
 }));
 
