@@ -155,17 +155,45 @@ const UserArea = () => {
         <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><Calendar className="text-blue-600" size={20} />Minhas Mensalidades</h2>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50"><tr><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mês</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Devido</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Pago</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th><th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ação</th></tr></thead>
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mês</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mensalidade</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  <span className="flex items-center justify-center gap-1">
+                    <Gift size={12} className="text-purple-500" />
+                    Rifa
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pago</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ação</th>
+              </tr>
+            </thead>
             <tbody className="divide-y divide-gray-200">
-              {minhasMensalidades.map((m) => (
-                <tr key={m.id}>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{formatMesReferencia(m.mes_referencia)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(m.valor_devido)}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500">{formatCurrency(m.valor_pago)}</td>
-                  <td className="px-4 py-3"><span className={`px-2 py-1 text-xs rounded-full ${STATUS_MENSALIDADE_COLORS[m.status]}`}>{m.status === 'pago' ? '✓ Pago' : m.status === 'parcial' ? '◐ Parcial' : '○ Pendente'}</span></td>
-                  <td className="px-4 py-3">{m.status !== 'pago' && (temComprovantePendente('mensalidade', m.id) ? <span className="text-xs text-yellow-600 flex items-center gap-1"><Clock size={14} />Aguardando</span> : <button onClick={() => openComprovanteModal('mensalidade', m)} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"><Upload size={14} />Comprovante</button>)}</td>
-                </tr>
-              ))}
+              {minhasMensalidades.map((m) => {
+                const valorRifa = cotista?.participa_rifa ? (cotista.cotas * 20) : 0;
+                const valorTotal = Number(m.valor_devido || 0) + valorRifa;
+                
+                return (
+                  <tr key={m.id}>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{formatMesReferencia(m.mes_referencia)}</td>
+                    <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_devido)}</td>
+                    <td className="px-4 py-3 text-sm text-center">
+                      {valorRifa > 0 ? (
+                        <span className="text-purple-600 font-medium">{formatCurrency(valorRifa)}</span>
+                      ) : (
+                        <span className="text-gray-400">R$ 0,00</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center font-medium text-blue-600">{formatCurrency(valorTotal)}</td>
+                    <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_pago)}</td>
+                    <td className="px-4 py-3 text-center"><span className={`px-2 py-1 text-xs rounded-full ${STATUS_MENSALIDADE_COLORS[m.status]}`}>{m.status === 'pago' ? '✓ Pago' : m.status === 'parcial' ? '◐ Parcial' : '○ Pendente'}</span></td>
+                    <td className="px-4 py-3 text-center">{m.status !== 'pago' && (temComprovantePendente('mensalidade', m.id) ? <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span> : <button onClick={() => openComprovanteModal('mensalidade', m)} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"><Upload size={14} />Comprovante</button>)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

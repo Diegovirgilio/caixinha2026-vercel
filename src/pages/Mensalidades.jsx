@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calendar, Check, Clock, AlertCircle, Search, Filter,
   Loader2, X, DollarSign, CheckCircle,
-  Edit2, Trash2, Plus, RefreshCw
+  Edit2, Trash2, Plus, RefreshCw, Gift
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -79,12 +79,23 @@ const Mensalidades = () => {
     return !cotista?.is_admin;
   });
 
+  // Calcular valores de rifa baseado nos cotistas que participam
+  const valorRifaTotal = mensalidadesSemAdmin.reduce((sum, m) => {
+    const cotista = (cotistas || []).find(c => c.id === m.cotista_id);
+    if (cotista?.participa_rifa) {
+      return sum + (cotista.cotas * 20); // R$ 20 por cota
+    }
+    return sum;
+  }, 0);
+
   const stats = {
     total: mensalidadesSemAdmin.length,
     pagos: mensalidadesSemAdmin.filter(m => m.status === 'pago').length,
     parciais: mensalidadesSemAdmin.filter(m => m.status === 'parcial').length,
     pendentes: mensalidadesSemAdmin.filter(m => m.status === 'pendente').length,
-    valorEsperado: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0),
+    valorEsperadoMensalidade: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0),
+    valorEsperadoRifa: valorRifaTotal,
+    valorEsperadoTotal: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0) + valorRifaTotal,
     valorRecebido: mensalidadesSemAdmin.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0)
   };
 
@@ -270,14 +281,23 @@ const Mensalidades = () => {
     try {
       // Apenas cotistas ativos e que não são admin
       const cotistasAtivos = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
+      const valorPorCota = parseFloat(configuracoes?.valor_por_cota || 50);
+      const valorRifaPorCota = 20; // R$ 20 por cota para rifa
       
-      const mensalidadesParaInserir = cotistasAtivos.map(c => ({
-        cotista_id: c.id,
-        mes_referencia: mesAnoFormatado,
-        valor_devido: c.cotas * parseFloat(configuracoes?.valor_por_cota || 50),
-        valor_pago: 0,
-        status: 'pendente'
-      }));
+      const mensalidadesParaInserir = cotistasAtivos.map(c => {
+        const valorMensalidade = c.cotas * valorPorCota;
+        const valorRifa = c.participa_rifa ? c.cotas * valorRifaPorCota : 0;
+        
+        return {
+          cotista_id: c.id,
+          mes_referencia: mesAnoFormatado,
+          valor_devido: valorMensalidade,
+          valor_rifa: valorRifa,
+          valor_total: valorMensalidade + valorRifa,
+          valor_pago: 0,
+          status: 'pendente'
+        };
+      });
 
       const { error: insertError } = await supabase
         .from('mensalidades')
@@ -365,22 +385,33 @@ const Mensalidades = () => {
       )}
 
       {/* Cards de Estatísticas */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div className="bg-white rounded-xl shadow p-4">
-          <p className="text-gray-500 text-sm">Esperado</p>
-          <p className="text-2xl font-bold text-gray-800">{formatCurrency(stats.valorEsperado)}</p>
+          <p className="text-gray-500 text-sm">Mensalidade</p>
+          <p className="text-xl font-bold text-gray-800">{formatCurrency(stats.valorEsperadoMensalidade)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow p-4">
+          <p className="text-gray-500 text-sm flex items-center gap-1">
+            <Gift size={14} className="text-purple-500" />
+            Rifa
+          </p>
+          <p className="text-xl font-bold text-purple-600">{formatCurrency(stats.valorEsperadoRifa)}</p>
+        </div>
+        <div className="bg-white rounded-xl shadow p-4">
+          <p className="text-gray-500 text-sm">Total Esperado</p>
+          <p className="text-xl font-bold text-blue-600">{formatCurrency(stats.valorEsperadoTotal)}</p>
         </div>
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Recebido</p>
-          <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.valorRecebido)}</p>
+          <p className="text-xl font-bold text-green-600">{formatCurrency(stats.valorRecebido)}</p>
         </div>
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Pagos</p>
-          <p className="text-2xl font-bold text-green-600">{stats.pagos}/{stats.total}</p>
+          <p className="text-xl font-bold text-green-600">{stats.pagos}/{stats.total}</p>
         </div>
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Pendentes</p>
-          <p className="text-2xl font-bold text-red-600">{stats.pendentes}</p>
+          <p className="text-xl font-bold text-red-600">{stats.pendentes}</p>
         </div>
       </div>
 
@@ -447,7 +478,16 @@ const Mensalidades = () => {
                   Cotas
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Devido
+                  Mensalidade
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  <span className="flex items-center justify-center gap-1">
+                    <Gift size={14} className="text-purple-500" />
+                    Rifa
+                  </span>
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Total
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Pago
@@ -461,14 +501,26 @@ const Mensalidades = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {mensalidadesFiltradas.map((m) => (
+              {mensalidadesFiltradas.map((m) => {
+                const cotistaInfo = (cotistas || []).find(c => c.id === m.cotista_id);
+                const valorRifa = cotistaInfo?.participa_rifa ? (cotistaInfo.cotas * 20) : 0;
+                const valorTotal = Number(m.valor_devido || 0) + valorRifa;
+                
+                return (
                 <tr key={m.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-medium">
                         {m.cotista?.nome?.charAt(0)}
                       </div>
-                      <span className="font-medium text-gray-800">{m.cotista?.nome}</span>
+                      <div>
+                        <span className="font-medium text-gray-800">{m.cotista?.nome}</span>
+                        {cotistaInfo?.participa_rifa && (
+                          <span className="ml-2 text-purple-500" title="Participa da rifa">
+                            <Gift size={14} className="inline" />
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
@@ -478,6 +530,16 @@ const Mensalidades = () => {
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
                     {formatCurrency(m.valor_devido)}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    {valorRifa > 0 ? (
+                      <span className="text-purple-600 font-medium">{formatCurrency(valorRifa)}</span>
+                    ) : (
+                      <span className="text-gray-400">R$ 0,00</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-center font-medium text-blue-600">
+                    {formatCurrency(valorTotal)}
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
                     {formatCurrency(m.valor_pago || 0)}
@@ -515,7 +577,8 @@ const Mensalidades = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Edit2, Trash2, UserCheck, UserX,
   ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info,
-  Mail, CheckCircle, RefreshCw, Phone, Clock, Gift, Hash
+  Mail, CheckCircle, RefreshCw, Phone, Clock, Gift, Hash, Eye, EyeOff, Lock
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -27,10 +27,11 @@ const Cotistas = () => {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingCotista, setEditingCotista] = useState(null);
-  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false });
+  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loadingRifa, setLoadingRifa] = useState(null); // ID do cotista com loading
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     loadCotistas();
@@ -90,7 +91,8 @@ const Cotistas = () => {
 
   const openAddModal = () => {
     setEditingCotista(null);
-    setFormData({ nome: '', email: '', cotas: 1, telefone: '' });
+    setFormData({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '' });
+    setShowPassword(false);
     setError('');
     setShowModal(true);
   };
@@ -101,7 +103,9 @@ const Cotistas = () => {
       nome: cotista.nome || '',
       email: cotista.email || '',
       cotas: cotista.cotas || 1,
-      telefone: cotista.telefone || ''
+      telefone: cotista.telefone || '',
+      participa_rifa: cotista.participa_rifa || false,
+      senha: ''
     });
     setError('');
     setShowModal(true);
@@ -121,6 +125,17 @@ const Cotistas = () => {
     
     if (formData.cotas < minCotas || formData.cotas > 50) {
       setError(`Cotas deve ser entre ${minCotas} e 50`);
+      return;
+    }
+
+    // Validar senha para novo cotista
+    if (!editingCotista && !formData.senha) {
+      setError('Senha é obrigatória para novo cotista');
+      return;
+    }
+
+    if (!editingCotista && formData.senha.length < 4) {
+      setError('Senha deve ter pelo menos 4 caracteres');
       return;
     }
 
@@ -168,26 +183,53 @@ const Cotistas = () => {
         console.log('Update result:', data);
         setSuccess('Cotista atualizado com sucesso!');
       } else {
-        // Criar novo cotista (não é admin)
+        // Criar novo cotista com usuário e senha
+        // Gerar email fake se não informado
+        const emailParaAuth = formData.email || `${formData.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`;
+        
+        // Criar usuário no Auth
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: emailParaAuth,
+          password: formData.senha,
+          options: {
+            data: { nome: formData.nome.trim() }
+          }
+        });
+
+        if (authError) {
+          console.error('Erro ao criar usuário:', authError);
+          throw authError;
+        }
+
+        // Criar cotista vinculado ao user_id
         const { data, error: insertError } = await supabase
           .from('cotistas')
           .insert({
+            user_id: authData.user?.id,
             nome: formData.nome.trim(),
             email: formData.email || null,
             cotas: parseInt(formData.cotas),
             telefone: formData.telefone || null,
             is_admin: false,
-            status: 'ativo'
+            status: 'ativo',
+            participa_rifa: formData.participa_rifa,
+            email_confirmado: true // Admin criou, já está confirmado
           })
-          .select();
+          .select()
+          .single();
 
         if (insertError) {
           console.error('Erro insert:', insertError);
           throw insertError;
         }
+
+        // Se marcou participar da rifa, gerar números
+        if (formData.participa_rifa && data) {
+          await ativarRifaCotista(data.id, parseInt(formData.cotas));
+        }
         
         console.log('Insert result:', data);
-        setSuccess('Cotista adicionado com sucesso!');
+        setSuccess('Cotista criado com sucesso! Senha: ' + formData.senha);
       }
 
       // Recarregar lista
@@ -663,28 +705,6 @@ const Cotistas = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="email@exemplo.com"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
-                <input
-                  type="text"
-                  value={formData.telefone}
-                  onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  placeholder="(00) 00000-0000"
-                />
-              </div>
-
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Número de Cotas *</label>
                 <input
                   type="number"
@@ -697,6 +717,82 @@ const Cotistas = () => {
                 <p className="text-xs text-gray-500 mt-1">
                   Mensalidade: {formatCurrency(formData.cotas * parseFloat(configuracoes?.valor_por_cota || 50))}
                 </p>
+              </div>
+
+              {/* Senha - apenas para novos cotistas */}
+              {!editingCotista && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <Lock size={14} className="inline mr-1" />
+                    Senha de Acesso *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={formData.senha}
+                      onChange={(e) => setFormData({ ...formData, senha: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 pr-10"
+                      placeholder="Senha do cotista"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">O cotista usará esta senha para acessar o sistema</p>
+                </div>
+              )}
+
+              {/* Participar da Rifa */}
+              <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Gift size={18} className="text-purple-600" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Participar da Rifa</p>
+                    <p className="text-xs text-gray-500">+{formatCurrency(formData.cotas * 20)}/mês</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.participa_rifa}
+                    onChange={(e) => setFormData({ ...formData, participa_rifa: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              {/* Campos opcionais */}
+              <div className="border-t pt-4">
+                <p className="text-xs text-gray-500 mb-3">Campos opcionais:</p>
+                
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="email@exemplo.com"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                    <input
+                      type="text"
+                      value={formData.telefone}
+                      onChange={(e) => setFormData({ ...formData, telefone: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="(00) 00000-0000"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
 
