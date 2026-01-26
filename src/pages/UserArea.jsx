@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, TrendingUp, Clock, CheckCircle, AlertCircle,
   Plus, Send, Key, PiggyBank, Calendar, FileText, Upload,
-  X, Loader2, Image, Camera, Gift, Hash, Trophy
+  X, Loader2, Image, Camera, Gift, Hash, Trophy, AlertTriangle
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -20,7 +20,7 @@ const UserArea = () => {
   const [meusComprovantes, setMeusComprovantes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSolicitacao, setShowSolicitacao] = useState(false);
-  const [solicitacao, setSolicitacao] = useState({ valor: '', chavePix: '', motivo: '' });
+  const [solicitacao, setSolicitacao] = useState({ valor: '', chavePix: '' });
   const [showComprovante, setShowComprovante] = useState(false);
   const [comprovanteData, setComprovanteData] = useState({ tipo: 'mensalidade', referencia_id: '', mes_referencia: '', valor_informado: '', arquivo: null });
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -29,6 +29,14 @@ const UserArea = () => {
   const [showPagamentoEmprestimo, setShowPagamentoEmprestimo] = useState(false);
   const [emprestimoSelecionado, setEmprestimoSelecionado] = useState(null);
   const [pagamentoEmprestimo, setPagamentoEmprestimo] = useState({ tipo: 'quitacao', valorParcial: '', arquivo: null });
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  // Função para mostrar erro em pop-up
+  const showError = (message) => {
+    setErrorMessage(message);
+    setShowErrorModal(true);
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -70,10 +78,21 @@ const UserArea = () => {
   const valorEmprestimo = parseFloat(solicitacao.valor) || 0;
 
   const handleSolicitarEmprestimo = async () => {
-    if (!solicitacao.valor) { setMensagem({ tipo: 'erro', texto: 'Informe o valor' }); return; }
-    if (!solicitacao.chavePix) { setMensagem({ tipo: 'erro', texto: 'Informe sua chave PIX para receber' }); return; }
+    // Validações com pop-up
+    if (!solicitacao.valor) { 
+      showError('Informe o valor do empréstimo'); 
+      return; 
+    }
+    if (!solicitacao.chavePix) { 
+      showError('Informe sua chave PIX para receber'); 
+      return; 
+    }
     const valor = parseFloat(solicitacao.valor);
-    if (valor > limite) { setMensagem({ tipo: 'erro', texto: `Excede limite de ${formatCurrency(limite)}` }); return; }
+    if (valor > limite) { 
+      showError(`Valor excede o limite disponível de ${formatCurrency(limite)}`); 
+      return; 
+    }
+    
     setEnviando(true);
     try {
       await emprestimosApi.solicitar({ 
@@ -81,15 +100,17 @@ const UserArea = () => {
         valor, 
         tipo: 'pendente', // Tipo será definido no pagamento
         parcelas: 1, 
-        motivo: solicitacao.motivo,
+        motivo: '',
         chave_pix: solicitacao.chavePix,
         taxa_juros: 0 // Juros definido no pagamento (20% ou 30%)
       });
       setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada! Aguarde aprovação.' });
-      setSolicitacao({ valor: '', chavePix: '', motivo: '' });
+      setSolicitacao({ valor: '', chavePix: '' });
       setShowSolicitacao(false);
       setMeusEmprestimos(await emprestimosApi.getByCotista(cotista.id));
-    } catch (error) { setMensagem({ tipo: 'erro', texto: 'Erro ao enviar solicitação' }); }
+    } catch (error) { 
+      showError('Erro ao enviar solicitação'); 
+    }
     finally { setEnviando(false); setTimeout(() => setMensagem({ tipo: '', texto: '' }), 5000); }
   };
 
@@ -350,17 +371,6 @@ const UserArea = () => {
                   onChange={(e) => setSolicitacao({ ...solicitacao, chavePix: e.target.value })} 
                   className="w-full px-4 py-2 border rounded-lg" 
                   placeholder="CPF, telefone, email ou chave aleatória" 
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
-                <input 
-                  type="text" 
-                  value={solicitacao.motivo} 
-                  onChange={(e) => setSolicitacao({ ...solicitacao, motivo: e.target.value })} 
-                  className="w-full px-4 py-2 border rounded-lg" 
-                  placeholder="Para que precisa do empréstimo?" 
                 />
               </div>
               
@@ -688,6 +698,29 @@ const UserArea = () => {
               >
                 {enviando ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
                 {enviando ? 'Enviando...' : 'Enviar Comprovante'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Erro */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-red-600" size={32} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Atenção</h3>
+              <p className="text-gray-600">{errorMessage}</p>
+            </div>
+            <div className="px-6 pb-6">
+              <button
+                onClick={() => setShowErrorModal(false)}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                OK
               </button>
             </div>
           </div>

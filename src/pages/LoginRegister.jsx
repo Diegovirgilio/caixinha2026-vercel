@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   PiggyBank, LogIn, Eye, EyeOff, UserPlus, CheckCircle, 
-  Loader2, Wifi, Lock, User, AlertTriangle, Users, Hash
+  Loader2, Wifi, Lock, User, AlertTriangle, Users, Hash, Gift, Phone
 } from 'lucide-react';
 import { useAuthStore, useAppStore } from '../store/useStore';
 import { CONFIG } from '../utils/constants';
@@ -12,16 +12,24 @@ const LoginRegister = () => {
   const [loginMode, setLoginMode] = useState('lista'); // 'lista', 'nome'
   const [loginData, setLoginData] = useState({ nome: '', password: '' });
   const [showPassword, setShowPassword] = useState(false);
-  const [registerData, setRegisterData] = useState({ nome: '', password: '', confirmPassword: '', cotas: '' });
+  const [registerData, setRegisterData] = useState({ nome: '', password: '', confirmPassword: '', cotas: '', telefone: '', participa_rifa: false });
   const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
   const inputRef = useRef(null);
   
   const { loginByName, register } = useAuthStore();
   const { cotistas, loadCotistas, configuracoes } = useAppStore();
+
+  // Função para mostrar erro em pop-up
+  const showError = (message) => {
+    setErrorMessage(message);
+    setShowErrorModal(true);
+  };
 
   // Carregar lista de cotistas para o select
   useEffect(() => {
@@ -62,30 +70,30 @@ const LoginRegister = () => {
     setError('');
     setSuccess('');
 
-    // Validações
+    // Validações com pop-up
     if (!registerData.nome.trim() || registerData.nome.trim().length < 3) {
-      setError('Digite nome e sobrenome (mínimo 3 caracteres)');
+      showError('Digite nome e sobrenome (mínimo 3 caracteres)');
       return;
     }
     if (!registerData.nome.trim().includes(' ')) {
-      setError('Digite nome e sobrenome separados por espaço');
+      showError('Digite nome e sobrenome separados por espaço');
       return;
     }
     if (registerData.password.length < 6) {
-      setError('A senha deve ter pelo menos 6 caracteres');
+      showError('A senha deve ter pelo menos 6 caracteres');
       return;
     }
     if (registerData.password !== registerData.confirmPassword) {
-      setError('As senhas não coincidem');
+      showError('As senhas não coincidem');
       return;
     }
     const cotasNum = parseInt(registerData.cotas);
     if (!registerData.cotas || isNaN(cotasNum) || cotasNum < 1) {
-      setError('Informe o número de cotas (mínimo 1)');
+      showError('Informe o número de cotas (mínimo 1)');
       return;
     }
     if (cotasNum > 50) {
-      setError('Número de cotas deve ser entre 1 e 50');
+      showError('Número de cotas deve ser entre 1 e 50');
       return;
     }
 
@@ -94,16 +102,18 @@ const LoginRegister = () => {
       await register({
         password: registerData.password,
         nome: registerData.nome.trim(),
-        cotas: cotasNum
+        cotas: cotasNum,
+        telefone: registerData.telefone || null,
+        participa_rifa: registerData.participa_rifa
       });
       setSuccess('Cadastro realizado! Aguarde a aprovação do administrador para acessar o sistema.');
-      setRegisterData({ nome: '', password: '', confirmPassword: '', cotas: '' });
+      setRegisterData({ nome: '', password: '', confirmPassword: '', cotas: '', telefone: '', participa_rifa: false });
       setTimeout(() => { setMode('login'); setSuccess(''); }, 5000);
     } catch (err) {
       if (err.message.includes('já existe')) {
-        setError(err.message);
+        showError(err.message);
       } else {
-        setError(err.message || 'Erro ao cadastrar');
+        showError(err.message || 'Erro ao cadastrar');
       }
     } finally {
       setLoading(false);
@@ -116,9 +126,12 @@ const LoginRegister = () => {
   };
 
   const valorPorCota = parseFloat(configuracoes?.valor_por_cota || 50);
+  const valorRifaPorCota = 20;
   const cotasNum = parseInt(registerData.cotas) || 0;
   const valorMensalidade = cotasNum * valorPorCota;
-  const valorTotal = valorMensalidade * 11;
+  const valorRifa = registerData.participa_rifa ? cotasNum * valorRifaPorCota : 0;
+  const valorMensalidadeTotal = valorMensalidade + valorRifa;
+  const valorTotal = valorMensalidadeTotal * 11;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 flex items-center justify-center p-4">
@@ -349,19 +362,62 @@ const LoginRegister = () => {
                 {cotasNum > 0 && (
                   <div className="mt-2 p-3 bg-blue-50 rounded-lg text-xs">
                     <div className="flex justify-between text-blue-600">
-                      <span>Valor por cota:</span>
-                      <span className="font-medium">{formatCurrency(valorPorCota)}/mês</span>
-                    </div>
-                    <div className="flex justify-between text-blue-600 mt-1">
-                      <span>Sua mensalidade:</span>
+                      <span>Mensalidade:</span>
                       <span className="font-medium">{formatCurrency(valorMensalidade)}/mês</span>
                     </div>
+                    {registerData.participa_rifa && (
+                      <div className="flex justify-between text-purple-600 mt-1">
+                        <span>Rifa:</span>
+                        <span className="font-medium">{formatCurrency(valorRifa)}/mês</span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-blue-700 mt-1 pt-1 border-t border-blue-200">
+                      <span>Total mensal:</span>
+                      <span className="font-bold">{formatCurrency(valorMensalidadeTotal)}/mês</span>
+                    </div>
+                    <div className="flex justify-between text-blue-800 mt-1">
                       <span>Total (11 meses):</span>
                       <span className="font-bold">{formatCurrency(valorTotal)}</span>
                     </div>
                   </div>
                 )}
+              </div>
+
+              {/* Participar da Rifa */}
+              <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg border border-purple-100">
+                <div className="flex items-center gap-2">
+                  <Gift size={20} className="text-purple-600" />
+                  <div>
+                    <p className="text-sm font-medium text-gray-700">Participar da Rifa</p>
+                    <p className="text-xs text-gray-500">+R$ 20,00 por cota/mês</p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={registerData.participa_rifa}
+                    onChange={(e) => setRegisterData({ ...registerData, participa_rifa: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-600"></div>
+                </label>
+              </div>
+
+              {/* Telefone (opcional) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Telefone <span className="text-gray-400 text-xs">(opcional)</span>
+                </label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                  <input 
+                    type="tel" 
+                    value={registerData.telefone}
+                    onChange={(e) => setRegisterData({ ...registerData, telefone: e.target.value })}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    placeholder="(00) 00000-0000"
+                  />
+                </div>
               </div>
 
               <div>
@@ -433,6 +489,29 @@ const LoginRegister = () => {
           )}
         </div>
       </div>
+
+      {/* Modal de Erro */}
+      {showErrorModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="text-red-600" size={32} />
+              </div>
+              <h3 className="text-lg font-semibold text-gray-800 mb-2">Atenção</h3>
+              <p className="text-gray-600">{errorMessage}</p>
+            </div>
+            <div className="px-6 pb-6">
+              <button
+                onClick={() => setShowErrorModal(false)}
+                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

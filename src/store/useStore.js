@@ -89,7 +89,7 @@ export const useAuthStore = create((set, get) => ({
   },
 
   // Registro de novo usuário (nome + senha, aguarda aprovação)
-  register: async ({ password, nome, cotas }) => {
+  register: async ({ password, nome, cotas, telefone, participa_rifa }) => {
     set({ isLoading: true, error: null });
     
     try {
@@ -123,6 +123,8 @@ export const useAuthStore = create((set, get) => ({
           nome,
           email: emailFake,
           cotas: parseInt(cotas) || 1,
+          telefone: telefone || null,
+          participa_rifa: participa_rifa || false,
           is_admin: false,
           status: 'pendente' // Aguarda aprovação do admin
         })
