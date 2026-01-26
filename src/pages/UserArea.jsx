@@ -20,12 +20,15 @@ const UserArea = () => {
   const [meusComprovantes, setMeusComprovantes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSolicitacao, setShowSolicitacao] = useState(false);
-  const [solicitacao, setSolicitacao] = useState({ valor: '', tipo: 'vista', parcelas: 2, motivo: '' });
+  const [solicitacao, setSolicitacao] = useState({ valor: '', chavePix: '', motivo: '' });
   const [showComprovante, setShowComprovante] = useState(false);
   const [comprovanteData, setComprovanteData] = useState({ tipo: 'mensalidade', referencia_id: '', mes_referencia: '', valor_informado: '', arquivo: null });
   const [uploadProgress, setUploadProgress] = useState(0);
   const [enviando, setEnviando] = useState(false);
   const [mensagem, setMensagem] = useState({ tipo: '', texto: '' });
+  const [showPagamentoEmprestimo, setShowPagamentoEmprestimo] = useState(false);
+  const [emprestimoSelecionado, setEmprestimoSelecionado] = useState(null);
+  const [pagamentoEmprestimo, setPagamentoEmprestimo] = useState({ tipo: 'quitacao', valorParcial: '', arquivo: null });
 
   useEffect(() => {
     const loadData = async () => {
@@ -62,26 +65,143 @@ const UserArea = () => {
     return total + bonus;
   }, 0);
   const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI;
-  const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
-  const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
-  const taxaJuros = solicitacao.tipo === 'vista' ? jurosVista : jurosParcelado;
+  
+  // Cálculo do valor do empréstimo solicitado
   const valorEmprestimo = parseFloat(solicitacao.valor) || 0;
-  const valorJuros = valorEmprestimo * (taxaJuros / 100);
-  const valorTotal = valorEmprestimo + valorJuros;
 
   const handleSolicitarEmprestimo = async () => {
     if (!solicitacao.valor) { setMensagem({ tipo: 'erro', texto: 'Informe o valor' }); return; }
+    if (!solicitacao.chavePix) { setMensagem({ tipo: 'erro', texto: 'Informe sua chave PIX para receber' }); return; }
     const valor = parseFloat(solicitacao.valor);
     if (valor > limite) { setMensagem({ tipo: 'erro', texto: `Excede limite de ${formatCurrency(limite)}` }); return; }
     setEnviando(true);
     try {
-      await emprestimosApi.solicitar({ cotista_id: cotista.id, valor, tipo: solicitacao.tipo, parcelas: solicitacao.tipo === 'parcelado' ? parseInt(solicitacao.parcelas) : 1, motivo: solicitacao.motivo, taxa_juros: taxaJuros });
-      setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada!' });
-      setSolicitacao({ valor: '', tipo: 'vista', parcelas: 2, motivo: '' });
+      await emprestimosApi.solicitar({ 
+        cotista_id: cotista.id, 
+        valor, 
+        tipo: 'pendente', // Tipo será definido no pagamento
+        parcelas: 1, 
+        motivo: solicitacao.motivo,
+        chave_pix: solicitacao.chavePix,
+        taxa_juros: 0 // Juros definido no pagamento (20% ou 30%)
+      });
+      setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada! Aguarde aprovação.' });
+      setSolicitacao({ valor: '', chavePix: '', motivo: '' });
       setShowSolicitacao(false);
       setMeusEmprestimos(await emprestimosApi.getByCotista(cotista.id));
-    } catch (error) { setMensagem({ tipo: 'erro', texto: 'Erro ao enviar' }); }
+    } catch (error) { setMensagem({ tipo: 'erro', texto: 'Erro ao enviar solicitação' }); }
     finally { setEnviando(false); setTimeout(() => setMensagem({ tipo: '', texto: '' }), 5000); }
+  };
+
+  // Calcular valores para pagamento de empréstimo
+  const calcularPagamentoEmprestimo = () => {
+    if (!emprestimoSelecionado) return { juros20: 0, juros30: 0, totalQuitacao: 0, totalSoJuros: 0 };
+    const principal = Number(emprestimoSelecionado.valor_emprestimo || 0);
+    const juros20 = principal * 0.20;
+    const juros30 = principal * 0.30;
+    return {
+      principal,
+      juros20,
+      juros30,
+      totalQuitacao: principal + juros20,
+      totalSoJuros: juros30
+    };
+  };
+
+  const pagamentoCalc = calcularPagamentoEmprestimo();
+
+  // Abrir modal de pagamento de empréstimo
+  const openPagamentoEmprestimoModal = (emprestimo) => {
+    setEmprestimoSelecionado(emprestimo);
+    setPagamentoEmprestimo({ tipo: 'quitacao', valorParcial: '', arquivo: null });
+    setShowPagamentoEmprestimo(true);
+  };
+
+  // Calcular valor a pagar baseado na opção selecionada
+  const getValorPagamento = () => {
+    if (!emprestimoSelecionado) return 0;
+    const { principal, juros30, totalQuitacao } = pagamentoCalc;
+    
+    switch (pagamentoEmprestimo.tipo) {
+      case 'quitacao':
+        return totalQuitacao; // Principal + 20%
+      case 'soJuros':
+        return juros30; // 30% do principal
+      case 'parcial':
+        return parseFloat(pagamentoEmprestimo.valorParcial) || 0;
+      default:
+        return 0;
+    }
+  };
+
+  // Enviar comprovante de pagamento de empréstimo
+  const handleEnviarPagamentoEmprestimo = async () => {
+    if (!pagamentoEmprestimo.arquivo) { 
+      setMensagem({ tipo: 'erro', texto: 'Selecione o comprovante' }); 
+      return; 
+    }
+    
+    const valorPagamento = getValorPagamento();
+    if (valorPagamento <= 0) {
+      setMensagem({ tipo: 'erro', texto: 'Valor inválido' });
+      return;
+    }
+
+    // Validar pagamento parcial (deve ser maior que os juros)
+    if (pagamentoEmprestimo.tipo === 'parcial') {
+      const { juros30 } = pagamentoCalc;
+      if (valorPagamento < juros30) {
+        setMensagem({ tipo: 'erro', texto: `Pagamento parcial deve ser no mínimo ${formatCurrency(juros30)} (juros)` });
+        return;
+      }
+    }
+
+    setEnviando(true);
+    setUploadProgress(10);
+    
+    try {
+      // Upload do comprovante
+      const fileExt = pagamentoEmprestimo.arquivo.name.split('.').pop();
+      const fileName = `emprestimo_${emprestimoSelecionado.id}_${Date.now()}.${fileExt}`;
+      const filePath = `comprovantes/${cotista.id}/${fileName}`;
+      
+      setUploadProgress(30);
+      
+      const { error: uploadError } = await supabase.storage
+        .from('comprovantes')
+        .upload(filePath, pagamentoEmprestimo.arquivo);
+      
+      if (uploadError) throw uploadError;
+      
+      setUploadProgress(60);
+      
+      const { data: { publicUrl } } = supabase.storage
+        .from('comprovantes')
+        .getPublicUrl(filePath);
+      
+      // Registrar comprovante com informações do tipo de pagamento
+      await enviarComprovante({
+        cotista_id: cotista.id,
+        tipo: 'emprestimo',
+        referencia_id: emprestimoSelecionado.id,
+        valor_informado: valorPagamento,
+        arquivo_url: publicUrl,
+        observacao: `Tipo: ${pagamentoEmprestimo.tipo === 'quitacao' ? 'Quitação Total (20%)' : pagamentoEmprestimo.tipo === 'soJuros' ? 'Só Juros (30%)' : 'Juros + Parcial (30%)'}`
+      });
+      
+      setUploadProgress(100);
+      setMensagem({ tipo: 'sucesso', texto: 'Comprovante enviado! Aguarde aprovação.' });
+      setShowPagamentoEmprestimo(false);
+      setEmprestimoSelecionado(null);
+      
+    } catch (error) {
+      console.error('Erro ao enviar:', error);
+      setMensagem({ tipo: 'erro', texto: 'Erro ao enviar comprovante' });
+    } finally {
+      setEnviando(false);
+      setUploadProgress(0);
+      setTimeout(() => setMensagem({ tipo: '', texto: '' }), 5000);
+    }
   };
 
   const openComprovanteModal = (tipo, item) => {
@@ -201,31 +321,124 @@ const UserArea = () => {
 
       <div className="bg-white p-6 rounded-xl shadow-lg">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><PiggyBank className="text-orange-600" size={20} />Empréstimos</h2>
+          <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><PiggyBank className="text-orange-600" size={20} />Meus Empréstimos</h2>
           <button onClick={() => setShowSolicitacao(!showSolicitacao)} className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm flex items-center gap-2 hover:bg-orange-600"><Plus size={16} />Solicitar</button>
         </div>
+        
+        {/* Formulário de Solicitação */}
         {showSolicitacao && (
           <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Valor</label><input type="number" value={solicitacao.valor} onChange={(e) => setSolicitacao({ ...solicitacao, valor: e.target.value })} className="w-full px-4 py-2 border rounded-lg" placeholder="0,00" /><p className="text-xs text-gray-500 mt-1">Limite: {formatCurrency(limite)}</p></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label><select value={solicitacao.tipo} onChange={(e) => setSolicitacao({ ...solicitacao, tipo: e.target.value })} className="w-full px-4 py-2 border rounded-lg"><option value="vista">À Vista ({jurosVista}%)</option><option value="parcelado">Parcelado ({jurosParcelado}%)</option></select></div>
-            </div>
-            {valorEmprestimo > 0 && <div className="mt-4 p-3 bg-white rounded-lg border text-sm"><span className="text-gray-500">Total:</span> <span className="font-medium text-orange-600">{formatCurrency(valorTotal)}</span></div>}
-            <div className="flex gap-3 mt-4"><button onClick={handleSolicitarEmprestimo} disabled={enviando} className="flex-1 bg-orange-500 text-white py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50"><Send size={16} />{enviando ? 'Enviando...' : 'Enviar'}</button><button onClick={() => setShowSolicitacao(false)} className="px-4 py-2 border rounded-lg">Cancelar</button></div>
-          </div>
-        )}
-        {meusEmprestimos.length === 0 ? <p className="text-center text-gray-500 py-4">Nenhum empréstimo</p> : (
-          <div className="space-y-2">{meusEmprestimos.map((emp) => (
-            <div key={emp.id} className={`p-4 rounded-lg border ${emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-              <div className="flex justify-between items-center">
-                <div><p className="font-medium text-gray-800">{formatCurrency(emp.valor_emprestimo)}</p><p className="text-sm text-gray-500">Total: {formatCurrency(emp.valor_total)}</p></div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${STATUS_EMPRESTIMO_COLORS[emp.status]}`}>{STATUS_EMPRESTIMO_LABELS[emp.status]}</span>
-                  {emp.status === 'ativo' && (temComprovantePendente('emprestimo', emp.id) ? <span className="text-xs text-yellow-600 flex items-center gap-1"><Clock size={14} />Aguardando</span> : <button onClick={() => openComprovanteModal('emprestimo', emp)} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"><Upload size={14} />Pagar</button>)}
+            <h3 className="font-medium text-orange-800 mb-3">Nova Solicitação de Empréstimo</h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Valor desejado *</label>
+                <input 
+                  type="number" 
+                  value={solicitacao.valor} 
+                  onChange={(e) => setSolicitacao({ ...solicitacao, valor: e.target.value })} 
+                  className="w-full px-4 py-2 border rounded-lg" 
+                  placeholder="0,00" 
+                />
+                <p className="text-xs text-gray-500 mt-1">Limite disponível: {formatCurrency(limite)}</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Sua Chave PIX para receber *</label>
+                <input 
+                  type="text" 
+                  value={solicitacao.chavePix} 
+                  onChange={(e) => setSolicitacao({ ...solicitacao, chavePix: e.target.value })} 
+                  className="w-full px-4 py-2 border rounded-lg" 
+                  placeholder="CPF, telefone, email ou chave aleatória" 
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Motivo (opcional)</label>
+                <input 
+                  type="text" 
+                  value={solicitacao.motivo} 
+                  onChange={(e) => setSolicitacao({ ...solicitacao, motivo: e.target.value })} 
+                  className="w-full px-4 py-2 border rounded-lg" 
+                  placeholder="Para que precisa do empréstimo?" 
+                />
+              </div>
+              
+              {valorEmprestimo > 0 && (
+                <div className="p-3 bg-white rounded-lg border">
+                  <p className="text-sm text-gray-600">Valor solicitado: <span className="font-bold text-orange-600">{formatCurrency(valorEmprestimo)}</span></p>
+                  <p className="text-xs text-gray-500 mt-1">Juros serão definidos no momento do pagamento (20% quitação ou 30% parcial)</p>
                 </div>
+              )}
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={handleSolicitarEmprestimo} 
+                  disabled={enviando} 
+                  className="flex-1 bg-orange-500 text-white py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-orange-600"
+                >
+                  <Send size={16} />
+                  {enviando ? 'Enviando...' : 'Enviar Solicitação'}
+                </button>
+                <button onClick={() => setShowSolicitacao(false)} className="px-4 py-2 border rounded-lg hover:bg-gray-50">Cancelar</button>
               </div>
             </div>
-          ))}</div>
+          </div>
+        )}
+        
+        {/* Lista de Empréstimos */}
+        {meusEmprestimos.length === 0 ? (
+          <p className="text-center text-gray-500 py-4">Nenhum empréstimo</p>
+        ) : (
+          <div className="space-y-3">
+            {meusEmprestimos.map((emp) => {
+              const principal = Number(emp.valor_emprestimo || 0);
+              const juros20 = principal * 0.20;
+              const juros30 = principal * 0.30;
+              
+              return (
+                <div key={emp.id} className={`p-4 rounded-lg border ${emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
+                  <div className="flex flex-col sm:flex-row justify-between gap-3">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_EMPRESTIMO_COLORS[emp.status]}`}>
+                          {STATUS_EMPRESTIMO_LABELS[emp.status]}
+                        </span>
+                      </div>
+                      <p className="font-bold text-lg text-gray-800">Principal: {formatCurrency(principal)}</p>
+                      {emp.status === 'ativo' && (
+                        <div className="text-sm text-gray-600 mt-1">
+                          <p>Quitação (20%): {formatCurrency(principal + juros20)}</p>
+                          <p>Só Juros (30%): {formatCurrency(juros30)}</p>
+                        </div>
+                      )}
+                      {emp.chave_pix && emp.status === 'pendente' && (
+                        <p className="text-xs text-gray-500 mt-1">PIX: {emp.chave_pix}</p>
+                      )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                      {emp.status === 'ativo' && (
+                        temComprovantePendente('emprestimo', emp.id) ? (
+                          <span className="text-xs text-yellow-600 flex items-center gap-1 bg-yellow-100 px-3 py-1 rounded-full">
+                            <Clock size={14} />Aguardando aprovação
+                          </span>
+                        ) : (
+                          <button 
+                            onClick={() => openPagamentoEmprestimoModal(emp)} 
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 flex items-center gap-2"
+                          >
+                            <Upload size={16} />
+                            Pagar
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
@@ -314,6 +527,169 @@ const UserArea = () => {
               {uploadProgress > 0 && <div className="w-full bg-gray-200 rounded-full h-2"><div className="bg-blue-600 h-2 rounded-full" style={{ width: `${uploadProgress}%` }} /></div>}
             </div>
             <div className="flex gap-3 p-4 border-t"><button onClick={() => setShowComprovante(false)} className="flex-1 px-4 py-2 border rounded-lg">Cancelar</button><button onClick={handleEnviarComprovante} disabled={enviando || !comprovanteData.arquivo} className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2">{enviando ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}{enviando ? 'Enviando...' : 'Enviar'}</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Pagamento de Empréstimo */}
+      {showPagamentoEmprestimo && emprestimoSelecionado && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold">Pagar Empréstimo</h3>
+              <button onClick={() => setShowPagamentoEmprestimo(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-4 space-y-4">
+              {/* Resumo do Empréstimo */}
+              <div className="bg-orange-50 p-3 rounded-lg">
+                <p className="text-sm text-orange-700">
+                  <strong>Principal:</strong> {formatCurrency(pagamentoCalc.principal)}
+                </p>
+              </div>
+              
+              {/* Opções de Pagamento */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Tipo de Pagamento</label>
+                
+                {/* Opção 1: Quitação Total */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoEmprestimo.tipo === 'quitacao' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="quitacao"
+                    checked={pagamentoEmprestimo.tipo === 'quitacao'}
+                    onChange={(e) => setPagamentoEmprestimo({ ...pagamentoEmprestimo, tipo: e.target.value })}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Quitação Total (20% juros)</p>
+                    <p className="text-sm text-green-600 font-bold">{formatCurrency(pagamentoCalc.totalQuitacao)}</p>
+                  </div>
+                </label>
+                
+                {/* Opção 2: Só Juros */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoEmprestimo.tipo === 'soJuros' ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="soJuros"
+                    checked={pagamentoEmprestimo.tipo === 'soJuros'}
+                    onChange={(e) => setPagamentoEmprestimo({ ...pagamentoEmprestimo, tipo: e.target.value })}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Só Juros (30%)</p>
+                    <p className="text-sm text-orange-600 font-bold">{formatCurrency(pagamentoCalc.juros30)}</p>
+                    <p className="text-xs text-gray-500">Principal continua: {formatCurrency(pagamentoCalc.principal)}</p>
+                  </div>
+                </label>
+                
+                {/* Opção 3: Parcial */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoEmprestimo.tipo === 'parcial' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="parcial"
+                    checked={pagamentoEmprestimo.tipo === 'parcial'}
+                    onChange={(e) => setPagamentoEmprestimo({ ...pagamentoEmprestimo, tipo: e.target.value })}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Juros + Parte do Principal (30%)</p>
+                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.juros30)} (juros)</p>
+                  </div>
+                </label>
+                
+                {pagamentoEmprestimo.tipo === 'parcial' && (
+                  <div className="ml-6 mt-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Valor do pagamento</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={pagamentoEmprestimo.valorParcial}
+                      onChange={(e) => setPagamentoEmprestimo({ ...pagamentoEmprestimo, valorParcial: e.target.value })}
+                      className="w-full px-3 py-2 border rounded-lg"
+                      placeholder={`Mínimo ${formatCurrency(pagamentoCalc.juros30)}`}
+                    />
+                    {pagamentoEmprestimo.valorParcial && parseFloat(pagamentoEmprestimo.valorParcial) >= pagamentoCalc.juros30 && (
+                      <p className="text-xs text-blue-600 mt-1">
+                        Abate: {formatCurrency(pagamentoCalc.juros30)} (juros) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.juros30)} (principal)
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+              
+              {/* Valor a Pagar */}
+              <div className="bg-gray-100 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">Valor a pagar:</p>
+                <p className="text-2xl font-bold text-gray-800">{formatCurrency(getValorPagamento())}</p>
+              </div>
+              
+              {/* Upload do Comprovante */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Comprovante de Pagamento</label>
+                <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                  {pagamentoEmprestimo.arquivo ? (
+                    <div className="space-y-2">
+                      {pagamentoEmprestimo.arquivo.type.startsWith('image/') ? (
+                        <img src={URL.createObjectURL(pagamentoEmprestimo.arquivo)} alt="Preview" className="max-h-40 mx-auto rounded-lg border" />
+                      ) : (
+                        <div className="flex items-center justify-center gap-2 p-4 bg-red-50 rounded-lg">
+                          <FileText className="text-red-500" size={32} />
+                          <span className="text-sm text-gray-700">PDF</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm truncate max-w-[200px]">{pagamentoEmprestimo.arquivo.name}</span>
+                        <button onClick={() => setPagamentoEmprestimo({ ...pagamentoEmprestimo, arquivo: null })} className="text-red-500">
+                          <X size={20} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer">
+                      <div className="flex flex-col items-center gap-2">
+                        <Camera className="text-gray-400" size={32} />
+                        <span className="text-sm text-gray-500">Clique para selecionar</span>
+                      </div>
+                      <input 
+                        type="file" 
+                        accept="image/*,.pdf" 
+                        className="hidden" 
+                        onChange={(e) => e.target.files?.[0] && setPagamentoEmprestimo({ ...pagamentoEmprestimo, arquivo: e.target.files[0] })} 
+                      />
+                    </label>
+                  )}
+                </div>
+              </div>
+              
+              {uploadProgress > 0 && (
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="bg-green-600 h-2 rounded-full" style={{ width: `${uploadProgress}%` }} />
+                </div>
+              )}
+            </div>
+            
+            <div className="flex gap-3 p-4 border-t">
+              <button 
+                onClick={() => setShowPagamentoEmprestimo(false)} 
+                className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={handleEnviarPagamentoEmprestimo} 
+                disabled={enviando || !pagamentoEmprestimo.arquivo || (pagamentoEmprestimo.tipo === 'parcial' && !pagamentoEmprestimo.valorParcial)} 
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-green-700"
+              >
+                {enviando ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
+                {enviando ? 'Enviando...' : 'Enviar Comprovante'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -62,9 +62,10 @@ const Emprestimos = () => {
   const pendentes = emprestimosFiltrados.filter(e => e.status === 'pendente');
   const ativos = emprestimosFiltrados.filter(e => e.status === 'ativo');
 
-  // Estatísticas (apenas cotistas, não admins)
+  // Estatísticas (apenas cotistas, não admins) - Principal e Juros separados
   const stats = {
-    totalEmprestado: ativos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0),
+    totalPrincipal: ativos.reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0),
+    totalJuros: ativos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0),
     totalPendente: pendentes.length,
     totalAtivos: ativos.length
   };
@@ -373,7 +374,7 @@ const Emprestimos = () => {
       )}
 
       {/* Cards de Estatísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -391,8 +392,19 @@ const Emprestimos = () => {
               <DollarSign className="text-green-600" size={24} />
             </div>
             <div>
-              <p className="text-gray-500 text-sm">Emprestado</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalEmprestado)}</p>
+              <p className="text-gray-500 text-sm">Principal</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totalPrincipal)}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+              <DollarSign className="text-orange-600" size={24} />
+            </div>
+            <div>
+              <p className="text-gray-500 text-sm">Juros a Receber</p>
+              <p className="text-2xl font-bold text-orange-600">{formatCurrency(stats.totalJuros)}</p>
             </div>
           </div>
         </div>
@@ -426,14 +438,18 @@ const Emprestimos = () => {
                   <div>
                     <p className="font-medium text-gray-800">{e.cotista?.nome}</p>
                     <p className="text-sm text-gray-500">
-                      {e.tipo === 'vista' ? 'À vista' : `Parcelado ${e.parcelas}x`} • 
-                      Juros: {e.taxa_juros}%
+                      Solicitado em: {formatDate(e.created_at)}
                     </p>
+                    {e.chave_pix && (
+                      <p className="text-sm text-blue-600 font-medium mt-1">
+                        PIX: {e.chave_pix}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-gray-800">{formatCurrency(e.valor_total)}</p>
-                  <p className="text-xs text-gray-500">Solicitado: {formatCurrency(e.valor_emprestimo)}</p>
+                  <p className="text-lg font-bold text-gray-800">{formatCurrency(e.valor_emprestimo)}</p>
+                  <p className="text-xs text-gray-500">Juros definido no pagamento</p>
                 </div>
                 <div className="flex gap-2">
                   <button

@@ -689,12 +689,21 @@ export const useAppStore = create((set, get) => ({
   },
 
   getInvestidoByCotista: (cotistaId) => {
-    const { mensalidades } = get();
+    const { mensalidades, cotistas } = get();
+    const cotista = cotistas.find(c => c.id === cotistaId);
     let total = 0;
+    
     Object.values(mensalidades).forEach(mes => {
       if (Array.isArray(mes)) {
         const registro = mes.find(m => m.cotista_id === cotistaId);
-        if (registro) total += Number(registro.valor_pago || 0);
+        if (registro) {
+          // Valor pago da mensalidade
+          total += Number(registro.valor_pago || 0);
+          // Se participa da rifa, adiciona valor da rifa (R$ 20 por cota)
+          if (cotista?.participa_rifa && registro.valor_pago > 0) {
+            total += (cotista.cotas || 0) * 20;
+          }
+        }
       }
     });
     return total;
