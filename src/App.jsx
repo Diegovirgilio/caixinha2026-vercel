@@ -3,7 +3,7 @@ import {
   PiggyBank, TrendingUp, Users, Calendar, DollarSign, 
   FileText, Settings, Home, LogOut, FileCheck,
   Wifi, WifiOff, Loader2, Copy, CheckCircle, AlertCircle, Key, Lock, Eye, EyeOff,
-  Download, Smartphone, X
+  Download, Smartphone, X, Calculator
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from './store/useStore';
 import { checkConnection } from './services/supabase';
@@ -20,6 +20,7 @@ import Rifas from './pages/Rifas';
 import Relatorio from './pages/Relatorio';
 import Gerenciamento from './pages/Gerenciamento';
 import Comprovantes from './pages/Comprovantes';
+import Auditoria from './pages/Auditoria';
 
 import { CONFIG } from './utils/constants';
 
@@ -269,6 +270,7 @@ const App = () => {
     { id: 'comprovantes', label: 'Comprovantes', icon: FileCheck, badge: comprovantes_pendentes },
     { id: 'rifas', label: 'Rifas', icon: PiggyBank },
     { id: 'cdi', label: 'CDI', icon: TrendingUp },
+    { id: 'auditoria', label: 'Auditoria', icon: Calculator },
     { id: 'relatorio', label: 'Relatório', icon: FileText },
     { id: 'gerenciamento', label: 'Gerenciamento', icon: Settings }
   ];
@@ -299,6 +301,8 @@ const App = () => {
         return <Rifas />;
       case 'cdi':
         return <RifasCdi />;
+      case 'auditoria':
+        return <Auditoria />;
       case 'relatorio':
         return <Relatorio />;
       case 'gerenciamento':

@@ -173,7 +173,7 @@ const Relatorio = () => {
             </div>
             <div>
               <p className="text-gray-500 text-xs">Cotistas</p>
-              <p className="text-xl font-bold text-gray-800">{cotistas.length}</p>
+              <p className="text-xl font-bold text-gray-800">{apenasContistas.length}</p>
             </div>
           </div>
         </div>

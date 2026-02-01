@@ -133,7 +133,7 @@ const Dashboard = () => {
             </div>
             <div>
               <p className="text-sm text-gray-500">Cotistas</p>
-              <p className="text-xl font-bold text-gray-800">{resumo?.totalCotistas || cotistas.length}</p>
+              <p className="text-xl font-bold text-gray-800">{resumo?.totalCotistas || apenasContistas.length}</p>
             </div>
           </div>
           <div className="space-y-2">

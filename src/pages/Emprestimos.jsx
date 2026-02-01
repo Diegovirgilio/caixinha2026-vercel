@@ -24,8 +24,7 @@ const Emprestimos = () => {
     cotista_id: '',
     valor_emprestimo: '',
     tipo: 'vista',
-    parcelas: 1,
-    motivo: ''
+    parcelas: 1
   });
 
   useEffect(() => {
@@ -94,8 +93,7 @@ const Emprestimos = () => {
       cotista_id: '',
       valor_emprestimo: '',
       tipo: 'vista',
-      parcelas: 1,
-      motivo: ''
+      parcelas: 1
     });
     setModalMode('adicionar');
     setError('');
@@ -108,8 +106,7 @@ const Emprestimos = () => {
       cotista_id: emprestimo.cotista_id,
       valor_emprestimo: emprestimo.valor_emprestimo,
       tipo: emprestimo.tipo,
-      parcelas: emprestimo.parcelas,
-      motivo: emprestimo.motivo || ''
+      parcelas: emprestimo.parcelas
     });
     setModalMode('editar');
     setError('');
@@ -161,7 +158,6 @@ const Emprestimos = () => {
           valor_juros: valorJuros,
           valor_total: valorTotal,
           valor_parcela: valorTotal / parcelas,
-          motivo: formData.motivo || null,
           status: 'pendente'
         });
 
@@ -203,8 +199,7 @@ const Emprestimos = () => {
           taxa_juros: taxa,
           valor_juros: valorJuros,
           valor_total: valorTotal,
-          valor_parcela: valorTotal / parcelas,
-          motivo: formData.motivo || null
+          valor_parcela: valorTotal / parcelas
         })
         .eq('id', selectedEmprestimo.id);
 
@@ -272,16 +267,14 @@ const Emprestimos = () => {
   };
 
   const handleRejeitar = async (emprestimo) => {
-    const motivo = prompt('Motivo da rejeição:');
-    if (!motivo) return;
+    if (!confirm(`Rejeitar empréstimo de ${emprestimo.cotista?.nome}?`)) return;
 
     setLoading(true);
     try {
       const { error: updateError } = await supabase
         .from('emprestimos')
         .update({
-          status: 'rejeitado',
-          motivo: `Rejeitado: ${motivo}`
+          status: 'rejeitado'
         })
         .eq('id', emprestimo.id);
 
@@ -684,13 +677,6 @@ const Emprestimos = () => {
                     </div>
                   </div>
 
-                  {selectedEmprestimo.motivo && (
-                    <div className="bg-gray-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-500">Motivo</p>
-                      <p className="text-gray-800">{selectedEmprestimo.motivo}</p>
-                    </div>
-                  )}
-
                   <div className="text-xs text-gray-500 space-y-1">
                     <p>Solicitado em: {formatDate(selectedEmprestimo.created_at)}</p>
                     {selectedEmprestimo.data_aprovacao && (
@@ -768,17 +754,6 @@ const Emprestimos = () => {
                       </select>
                     </div>
                   )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Motivo</label>
-                    <textarea
-                      value={formData.motivo}
-                      onChange={(e) => setFormData({ ...formData, motivo: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                      rows={2}
-                      placeholder="Motivo do empréstimo (opcional)"
-                    />
-                  </div>
 
                   {/* Preview dos valores */}
                   <div className="bg-blue-50 p-4 rounded-lg">

@@ -101,8 +101,14 @@ const Mensalidades = () => {
 
   // Abrir modal de pagamento
   const openPagamentoModal = (mensalidade) => {
+    // Buscar info do cotista para calcular rifa
+    const cotistaInfo = (cotistas || []).find(c => c.id === mensalidade.cotista_id);
+    const valorRifa = cotistaInfo?.participa_rifa ? (cotistaInfo.cotas * 20) : 0;
+    const valorTotalDevido = Number(mensalidade.valor_devido || 0) + valorRifa;
+    const valorRestante = valorTotalDevido - (mensalidade.valor_pago || 0);
+    
     setSelectedMensalidade(mensalidade);
-    setValorPagamento(String(mensalidade.valor_devido - (mensalidade.valor_pago || 0)));
+    setValorPagamento(String(valorRestante));
     setModalMode('pagamento');
     setError('');
     setShowModal(true);
@@ -146,8 +152,13 @@ const Mensalidades = () => {
 
     setLoading(true);
     try {
+      // Calcular valor total incluindo rifa
+      const cotistaInfo = (cotistas || []).find(c => c.id === selectedMensalidade.cotista_id);
+      const valorRifa = cotistaInfo?.participa_rifa ? (cotistaInfo.cotas * 20) : 0;
+      const valorTotalDevido = Number(selectedMensalidade.valor_devido || 0) + valorRifa;
+      
       const novoValorPago = (selectedMensalidade.valor_pago || 0) + valor;
-      const status = novoValorPago >= selectedMensalidade.valor_devido ? 'pago' : 'parcial';
+      const status = novoValorPago >= valorTotalDevido ? 'pago' : 'parcial';
 
       const { error: updateError } = await supabase
         .from('mensalidades')

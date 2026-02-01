@@ -320,6 +320,17 @@ export const useAppStore = create((set, get) => ({
       
       if (!comprovante) throw new Error('Comprovante não encontrado');
 
+      // Verificar se já existe outro comprovante APROVADO para mesma referencia_id e cotista_id
+      const { data: comprovantesExistentes } = await supabase
+        .from('comprovantes')
+        .select('id')
+        .eq('cotista_id', comprovante.cotista_id)
+        .eq('referencia_id', comprovante.referencia_id)
+        .eq('tipo', comprovante.tipo)
+        .eq('status', 'aprovado');
+      
+      const jaTemAprovado = comprovantesExistentes && comprovantesExistentes.length > 0;
+
       // Atualizar comprovante
       const { error: updateError } = await supabase
         .from('comprovantes')
@@ -332,46 +343,55 @@ export const useAppStore = create((set, get) => ({
       
       if (updateError) throw updateError;
 
-      // Atualizar mensalidade ou empréstimo
-      if (comprovante.tipo === 'mensalidade') {
-        const { data: mensalidade } = await supabase
-          .from('mensalidades')
-          .select('*')
-          .eq('id', comprovante.referencia_id)
-          .single();
-        
-        if (mensalidade) {
-          const novoValorPago = (mensalidade.valor_pago || 0) + valorAprovado;
-          const status = novoValorPago >= mensalidade.valor_devido ? 'pago' : 'parcial';
-          
-          await supabase
+      // Só atualiza valor se NÃO tinha comprovante aprovado antes
+      if (!jaTemAprovado) {
+        // Atualizar mensalidade ou empréstimo
+        if (comprovante.tipo === 'mensalidade') {
+          const { data: mensalidade } = await supabase
             .from('mensalidades')
-            .update({
-              valor_pago: novoValorPago,
-              status,
-              data_pagamento: new Date().toISOString()
-            })
-            .eq('id', comprovante.referencia_id);
-        }
-      } else if (comprovante.tipo === 'emprestimo') {
-        const { data: emprestimo } = await supabase
-          .from('emprestimos')
-          .select('*')
-          .eq('id', comprovante.referencia_id)
-          .single();
-        
-        if (emprestimo) {
-          const novoValorPago = (emprestimo.valor_pago || 0) + valorAprovado;
-          const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
+            .select('*, cotista:cotistas(id, cotas, participa_rifa)')
+            .eq('id', comprovante.referencia_id)
+            .single();
           
-          await supabase
+          if (mensalidade) {
+            // Calcular valor total devido incluindo rifa
+            let valorTotalDevido = Number(mensalidade.valor_devido || 0);
+            if (mensalidade.cotista?.participa_rifa) {
+              valorTotalDevido += (mensalidade.cotista.cotas || 0) * 20;
+            }
+            
+            const novoValorPago = (mensalidade.valor_pago || 0) + valorAprovado;
+            const status = novoValorPago >= valorTotalDevido ? 'pago' : 'parcial';
+            
+            await supabase
+              .from('mensalidades')
+              .update({
+                valor_pago: novoValorPago,
+                status,
+                data_pagamento: new Date().toISOString()
+              })
+              .eq('id', comprovante.referencia_id);
+          }
+        } else if (comprovante.tipo === 'emprestimo') {
+          const { data: emprestimo } = await supabase
             .from('emprestimos')
-            .update({
-              valor_pago: novoValorPago,
-              status,
-              data_quitacao: status === 'pago' ? new Date().toISOString() : null
-            })
-            .eq('id', comprovante.referencia_id);
+            .select('*')
+            .eq('id', comprovante.referencia_id)
+            .single();
+          
+          if (emprestimo) {
+            const novoValorPago = (emprestimo.valor_pago || 0) + valorAprovado;
+            const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
+            
+            await supabase
+              .from('emprestimos')
+              .update({
+                valor_pago: novoValorPago,
+                status,
+                data_quitacao: status === 'pago' ? new Date().toISOString() : null
+              })
+              .eq('id', comprovante.referencia_id);
+          }
         }
       }
 
@@ -691,20 +711,15 @@ export const useAppStore = create((set, get) => ({
   },
 
   getInvestidoByCotista: (cotistaId) => {
-    const { mensalidades, cotistas } = get();
-    const cotista = cotistas.find(c => c.id === cotistaId);
+    const { mensalidades } = get();
     let total = 0;
     
     Object.values(mensalidades).forEach(mes => {
       if (Array.isArray(mes)) {
         const registro = mes.find(m => m.cotista_id === cotistaId);
         if (registro) {
-          // Valor pago da mensalidade
+          // Valor pago já inclui mensalidade + rifa (se participar)
           total += Number(registro.valor_pago || 0);
-          // Se participa da rifa, adiciona valor da rifa (R$ 20 por cota)
-          if (cotista?.participa_rifa && registro.valor_pago > 0) {
-            total += (cotista.cotas || 0) * 20;
-          }
         }
       }
     });

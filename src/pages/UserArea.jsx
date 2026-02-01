@@ -98,11 +98,10 @@ const UserArea = () => {
       await emprestimosApi.solicitar({ 
         cotista_id: cotista.id, 
         valor, 
-        tipo: 'pendente', // Tipo será definido no pagamento
+        tipo: 'vista',
         parcelas: 1, 
-        motivo: '',
         chave_pix: solicitacao.chavePix,
-        taxa_juros: 0 // Juros definido no pagamento (20% ou 30%)
+        taxa_juros: 0
       });
       setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada! Aguarde aprovação.' });
       setSolicitacao({ valor: '', chavePix: '' });
@@ -226,9 +225,18 @@ const UserArea = () => {
   };
 
   const openComprovanteModal = (tipo, item) => {
+    // Calcular valor total incluindo rifa
+    let valorDevido = Number(item.valor_devido || 0);
+    if (tipo === 'mensalidade' && cotista?.participa_rifa) {
+      valorDevido += (cotista.cotas || 0) * 20; // R$ 20 por cota
+    }
+    const valorRestante = valorDevido - (item.valor_pago || 0);
+    
     setComprovanteData({
-      tipo, referencia_id: item.id, mes_referencia: item.mes_referencia || '',
-      valor_informado: String(tipo === 'mensalidade' ? item.valor_devido - (item.valor_pago || 0) : item.valor_total - (item.valor_pago || 0)),
+      tipo, 
+      referencia_id: item.id, 
+      mes_referencia: item.mes_referencia || '',
+      valor_informado: String(tipo === 'mensalidade' ? valorRestante : item.valor_total - (item.valor_pago || 0)),
       arquivo: null
     });
     setShowComprovante(true);
