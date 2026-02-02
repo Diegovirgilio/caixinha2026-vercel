@@ -59,8 +59,8 @@ const Rifas = () => {
   const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
   const totalNumeros = (rifaNumeros || []).length;
   const valorMensal = totalCotas * 20;
-  const valorPremio = valorMensal * 0.20;
-  const valorCaixinha = valorMensal * 0.80;
+  const totalPremios = 350; // R$ 200 + R$ 100 + R$ 50
+  const valorCaixinha = valorMensal - totalPremios;
 
   // Meses disponíveis
   const mesesOpcoes = [
@@ -108,9 +108,13 @@ const Rifas = () => {
         }
       );
 
-      if (resultado.vencedor) {
-        const vencedor = cotistas.find(c => c.id === resultado.vencedor);
-        setSuccess(`🎉 ${vencedor?.nome} ganhou com o número ${resultado.numero}! Prêmio: ${formatCurrency(resultado.premio)}`);
+      if (resultado.vencedores && resultado.vencedores.length > 0) {
+        const mensagens = resultado.vencedores.map(v => {
+          const vencedor = cotistas.find(c => c.id === v.cotista_id);
+          const posicaoNome = v.posicao === 'primeiro' ? '1º' : v.posicao === 'segundo' ? '2º' : '3º';
+          return `${posicaoNome}: ${vencedor?.nome} (${v.numero}) - ${formatCurrency(v.valor)}`;
+        });
+        setSuccess(`🎉 Vencedores!\n${mensagens.join(' | ')}`);
       } else {
         setSuccess(`Nenhum vencedor neste mês. ${formatCurrency(resultado.caixinha)} vai para a caixinha.`);
       }
@@ -125,7 +129,7 @@ const Rifas = () => {
         terceiro: ''
       });
 
-      setTimeout(() => setSuccess(''), 5000);
+      setTimeout(() => setSuccess(''), 8000);
     } catch (err) {
       setError(err.message || 'Erro ao realizar sorteio');
     } finally {
@@ -187,7 +191,7 @@ const Rifas = () => {
             Números Ativos
           </div>
           <p className="text-2xl font-bold text-purple-600">{totalNumeros}</p>
-          <p className="text-xs text-gray-500">2 por cota</p>
+          <p className="text-xs text-gray-500">5 por cota</p>
         </div>
         
         <div className="bg-white rounded-xl shadow p-4">
@@ -202,10 +206,10 @@ const Rifas = () => {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <Trophy size={16} />
-            Prêmio (20%)
+            Prêmios
           </div>
-          <p className="text-2xl font-bold text-yellow-600">{formatCurrency(valorPremio)}</p>
-          <p className="text-xs text-gray-500">Caixinha: {formatCurrency(valorCaixinha)}</p>
+          <p className="text-2xl font-bold text-yellow-600">{formatCurrency(350)}</p>
+          <p className="text-xs text-gray-500">R$ 200 + R$ 100 + R$ 50</p>
         </div>
       </div>
 
@@ -452,10 +456,13 @@ const Rifas = () => {
                 <p className="text-gray-600">
                   Arrecadação: <strong className="text-green-600">{formatCurrency(valorMensal)}</strong>
                 </p>
-                <p className="text-gray-600">
-                  Prêmio (20%): <strong className="text-yellow-600">{formatCurrency(valorPremio)}</strong> | 
-                  Caixinha (80%): <strong className="text-blue-600">{formatCurrency(valorCaixinha)}</strong>
-                </p>
+                <div className="text-gray-600 mt-1">
+                  <p className="font-medium text-purple-700">Prêmios:</p>
+                  <p>1º lugar: <strong className="text-yellow-600">R$ 200,00</strong></p>
+                  <p>2º lugar: <strong className="text-gray-600">R$ 100,00</strong></p>
+                  <p>3º lugar: <strong className="text-orange-600">R$ 50,00</strong></p>
+                  <p className="mt-1">Caixinha: <strong className="text-blue-600">{formatCurrency(valorCaixinha)}</strong></p>
+                </div>
               </div>
             </div>
 

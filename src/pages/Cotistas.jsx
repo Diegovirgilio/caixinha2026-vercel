@@ -372,9 +372,21 @@ const Cotistas = () => {
       
       await supabase.from('mensalidades').insert(mensalidades);
 
+      // Se cotista marcou participa_rifa, gerar números
+      if (cotista.participa_rifa) {
+        try {
+          await ativarRifaCotista(cotista.id, cotista.cotas || 1);
+        } catch (rifaError) {
+          console.log('Erro ao gerar números da rifa:', rifaError);
+        }
+      }
+
       await loadCotistas();
       await loadPendentes();
-      setSuccess(`${cotista.nome} aprovado com sucesso!`);
+      await loadRifaNumeros();
+      
+      const msgRifa = cotista.participa_rifa ? ` com ${(cotista.cotas || 1) * 5} números da rifa` : '';
+      setSuccess(`${cotista.nome} aprovado com sucesso${msgRifa}!`);
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       setError(err.message);

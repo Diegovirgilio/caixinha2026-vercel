@@ -907,49 +907,62 @@ export const useAppStore = create((set, get) => ({
       
       // Participantes ativos
       const participantes = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin);
-      const numerosAtivos = (rifaNumeros || []).filter(n => n.ativo);
+      let numerosAtivos = [...(rifaNumeros || []).filter(n => n.ativo)];
       
       // Calcular valores
       const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
       const valorArrecadado = totalCotas * 20; // R$ 20 por cota
-      const valorPremio = valorArrecadado * 0.20; // 20%
-      const valorCaixinha = valorArrecadado * 0.80; // 80%
+      
+      // Prêmios fixos
+      const premiosValores = [200, 100, 50]; // 1º, 2º, 3º lugar
+      const totalPremios = premiosValores.reduce((a, b) => a + b, 0); // R$ 350
+      const valorCaixinha = valorArrecadado - totalPremios;
       
       // Extrair números da Federal (3 prêmios: 1º, 2º, 3º)
-      const premios = [
-        resultadoFederal.primeiro,
-        resultadoFederal.segundo,
-        resultadoFederal.terceiro
+      const premiosFederal = [
+        { nome: 'primeiro', numero: resultadoFederal.primeiro, valor: 200 },
+        { nome: 'segundo', numero: resultadoFederal.segundo, valor: 100 },
+        { nome: 'terceiro', numero: resultadoFederal.terceiro, valor: 50 }
       ];
       
-      let numeroVencedor = null;
-      let cotistaVencedor = null;
+      const vencedores = [];
       const premiosVerificados = [];
       
-      // Verificar apenas últimos 3 dígitos de cada prêmio
-      for (const premio of premios) {
-        const ultimos3 = premio.slice(-3);
-        premiosVerificados.push({ premio, numero: ultimos3 });
+      // Verificar cada prêmio (pode ter até 3 vencedores)
+      for (const premio of premiosFederal) {
+        const ultimos3 = premio.numero.slice(-3);
+        premiosVerificados.push({ premio: premio.numero, numero: ultimos3, valor: premio.valor });
         
         const match = numerosAtivos.find(n => n.numero === ultimos3);
         if (match) {
-          numeroVencedor = ultimos3;
-          cotistaVencedor = match.cotista_id;
-          break;
+          vencedores.push({
+            posicao: premio.nome,
+            cotista_id: match.cotista_id,
+            numero: ultimos3,
+            valor: premio.valor
+          });
+          
+          // Remover número usado para não ganhar 2x com mesmo número
+          numerosAtivos = numerosAtivos.filter(n => n.id !== match.id);
         }
       }
+      
+      // Calcular totais
+      const totalPremiosGanhos = vencedores.reduce((sum, v) => sum + v.valor, 0);
+      const valorFinalCaixinha = valorArrecadado - totalPremiosGanhos;
       
       // Registrar sorteio
       const sorteioData = {
         mes_referencia: mesReferencia,
         data_sorteio: dataSorteio,
-        numero_vencedor: numeroVencedor,
-        cotista_vencedor_id: cotistaVencedor,
+        numero_vencedor: vencedores.length > 0 ? vencedores.map(v => v.numero).join(', ') : null,
+        cotista_vencedor_id: vencedores.length > 0 ? vencedores[0].cotista_id : null, // Primeiro vencedor
         valor_arrecadado: valorArrecadado,
-        valor_premio: cotistaVencedor ? valorPremio : 0,
-        valor_caixinha: cotistaVencedor ? valorCaixinha : valorArrecadado,
+        valor_premio: totalPremiosGanhos,
+        valor_caixinha: valorFinalCaixinha,
         resultado_federal: resultadoFederal,
-        premios_verificados: premiosVerificados
+        premios_verificados: premiosVerificados,
+        vencedores: vencedores // Lista completa de vencedores
       };
       
       const { error: sorteioError } = await supabase
@@ -958,46 +971,54 @@ export const useAppStore = create((set, get) => ({
       
       if (sorteioError) throw sorteioError;
       
-      // Se houve vencedor, processar vitória
-      if (cotistaVencedor && numeroVencedor) {
-        // Remover número vencedor
-        await supabase
-          .from('rifa_numeros')
-          .delete()
-          .eq('cotista_id', cotistaVencedor)
-          .eq('numero', numeroVencedor);
-        
-        // Remover 1 número aleatório adicional
-        const numerosRestantes = numerosAtivos.filter(
-          n => n.cotista_id === cotistaVencedor && n.numero !== numeroVencedor
-        );
-        
-        if (numerosRestantes.length > 0) {
-          const numeroAleatorio = numerosRestantes[Math.floor(Math.random() * numerosRestantes.length)];
-          await supabase.from('rifa_numeros').delete().eq('id', numeroAleatorio.id);
-        }
-        
-        // Verificar se cotista ainda tem números
-        await get().loadRifaNumeros();
-        const numerosAtualizados = get().getNumerosRifaByCotista(cotistaVencedor);
-        
-        if (numerosAtualizados.length === 0) {
-          await supabase
-            .from('cotistas')
-            .update({ participa_rifa: false })
-            .eq('id', cotistaVencedor);
+      // Processar vencedores do 1º e 2º lugar (perdem números)
+      // 3º lugar NÃO perde números
+      for (const vencedor of vencedores) {
+        // Só aplica regra para 1º e 2º lugar
+        if (vencedor.posicao === 'primeiro' || vencedor.posicao === 'segundo') {
+          // Buscar números atuais do vencedor
+          const numerosDoVencedor = (rifaNumeros || []).filter(
+            n => n.cotista_id === vencedor.cotista_id && n.ativo
+          );
           
-          await get().loadCotistas();
+          // Se tem apenas 1 número, NÃO aplica a regra
+          if (numerosDoVencedor.length <= 1) {
+            continue;
+          }
+          
+          // Remover número vencedor
+          await supabase
+            .from('rifa_numeros')
+            .delete()
+            .eq('cotista_id', vencedor.cotista_id)
+            .eq('numero', vencedor.numero);
+          
+          // Calcular quantos números aleatórios remover (máximo 3, mas mínimo 1 deve sobrar)
+          const numerosRestantes = numerosDoVencedor.filter(n => n.numero !== vencedor.numero);
+          const quantidadeRemover = Math.min(3, numerosRestantes.length - 1); // -1 para garantir que sobre pelo menos 1
+          
+          if (quantidadeRemover > 0) {
+            // Embaralhar e pegar os primeiros N para remover
+            const numerosParaRemover = numerosRestantes
+              .sort(() => Math.random() - 0.5)
+              .slice(0, quantidadeRemover);
+            
+            for (const num of numerosParaRemover) {
+              await supabase.from('rifa_numeros').delete().eq('id', num.id);
+            }
+          }
         }
       }
       
+      // Recarregar dados
+      await get().loadRifaNumeros();
+      await get().loadCotistas();
       await get().loadRifaSorteios();
       
       return {
-        vencedor: cotistaVencedor,
-        numero: numeroVencedor,
-        premio: cotistaVencedor ? valorPremio : 0,
-        caixinha: cotistaVencedor ? valorCaixinha : valorArrecadado
+        vencedores,
+        totalPremios: totalPremiosGanhos,
+        caixinha: valorFinalCaixinha
       };
     } catch (error) {
       console.error('Erro ao realizar sorteio:', error);

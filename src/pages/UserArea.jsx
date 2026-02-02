@@ -12,7 +12,7 @@ import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
-  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios } = useAppStore();
+  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios, cotistas } = useAppStore();
   const { setShowPixModal, setShowChangePasswordModal } = useUIStore();
   
   const [minhasMensalidades, setMinhasMensalidades] = useState([]);
@@ -62,10 +62,19 @@ const UserArea = () => {
   const investido = getInvestidoByCotista(cotista?.id);
   const limite = getLimiteEmprestimo(cotista?.id);
   const participacao = totalCotas > 0 ? ((cotista?.cotas || 0) / totalCotas) * 100 : 0;
-  const totalRifas = (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0);
+  
+  // Bônus Rifa: (valor_caixinha dos sorteios) / participantes da rifa
+  // Apenas para quem participa da rifa
+  const totalCaixinhaRifa = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_caixinha || 0), 0);
+  const participantesRifa = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin).length;
+  const bonusRifas = cotista?.participa_rifa && participantesRifa > 0 
+    ? totalCaixinhaRifa / participantesRifa 
+    : 0;
+  
+  // Bônus CDI: proporcional às cotas
   const totalCDI = (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0);
-  const bonusRifas = (totalRifas * participacao) / 100;
   const bonusCDI = (totalCDI * participacao) / 100;
+  
   const jurosRecebidos = (emprestimos || []).filter(e => e.status === 'pago').reduce((total, emp) => {
     const jurosTotal = Number(emp.valor_juros || 0);
     let bonus = emp.cotista_id === cotista?.id ? jurosTotal * 0.6 : 0;
@@ -490,7 +499,7 @@ const UserArea = () => {
                 ))}
               </div>
               <p className="text-xs text-gray-500 mt-2">
-                {cotista?.cotas} cota(s) × 2 números = {(cotista?.cotas || 0) * 2} números
+                {cotista?.cotas} cota(s) × 5 números = {(cotista?.cotas || 0) * 5} números
               </p>
             </div>
 
