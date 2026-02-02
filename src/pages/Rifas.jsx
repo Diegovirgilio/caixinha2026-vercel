@@ -30,9 +30,7 @@ const Rifas = () => {
     dataSorteio: new Date().toISOString().split('T')[0],
     primeiro: '',
     segundo: '',
-    terceiro: '',
-    quarto: '',
-    quinto: ''
+    terceiro: ''
   });
 
   useEffect(() => {
@@ -81,15 +79,13 @@ const Rifas = () => {
 
   const handleRealizarSorteio = async () => {
     // Validar campos
-    if (!sorteioData.primeiro || !sorteioData.segundo || !sorteioData.terceiro || 
-        !sorteioData.quarto || !sorteioData.quinto) {
-      setError('Informe todos os 5 prêmios da Federal');
+    if (!sorteioData.primeiro || !sorteioData.segundo || !sorteioData.terceiro) {
+      setError('Informe os 3 primeiros prêmios da Federal');
       return;
     }
 
     // Validar formato (5 dígitos)
-    const premios = [sorteioData.primeiro, sorteioData.segundo, sorteioData.terceiro, 
-                     sorteioData.quarto, sorteioData.quinto];
+    const premios = [sorteioData.primeiro, sorteioData.segundo, sorteioData.terceiro];
     for (const premio of premios) {
       if (!/^\d{5}$/.test(premio)) {
         setError('Cada prêmio deve ter exatamente 5 dígitos');
@@ -108,9 +104,7 @@ const Rifas = () => {
         {
           primeiro: sorteioData.primeiro,
           segundo: sorteioData.segundo,
-          terceiro: sorteioData.terceiro,
-          quarto: sorteioData.quarto,
-          quinto: sorteioData.quinto
+          terceiro: sorteioData.terceiro
         }
       );
 
@@ -128,9 +122,7 @@ const Rifas = () => {
         dataSorteio: new Date().toISOString().split('T')[0],
         primeiro: '',
         segundo: '',
-        terceiro: '',
-        quarto: '',
-        quinto: ''
+        terceiro: ''
       });
 
       setTimeout(() => setSuccess(''), 5000);
@@ -433,8 +425,9 @@ const Rifas = () => {
               {/* Prêmios da Federal */}
               <div className="bg-purple-50 rounded-lg p-3">
                 <p className="text-sm font-medium text-purple-700 mb-2">Resultado da Loteria Federal (5 dígitos)</p>
+                <p className="text-xs text-purple-500 mb-2">Apenas os últimos 3 dígitos serão verificados</p>
                 <div className="space-y-2">
-                  {['primeiro', 'segundo', 'terceiro', 'quarto', 'quinto'].map((premio, idx) => (
+                  {['primeiro', 'segundo', 'terceiro'].map((premio, idx) => (
                     <div key={premio} className="flex items-center gap-2">
                       <span className="text-sm text-purple-600 w-16">{idx + 1}º Prêmio:</span>
                       <input

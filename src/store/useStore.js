@@ -781,7 +781,7 @@ export const useAppStore = create((set, get) => ({
   // Ativar rifa para cotista (gera números)
   ativarRifaCotista: async (cotistaId, cotas) => {
     try {
-      const quantidade = cotas * 2; // 2 números por cota
+      const quantidade = cotas * 5; // 5 números por cota
       
       // Gerar números únicos
       const numerosGerados = [];
@@ -859,7 +859,7 @@ export const useAppStore = create((set, get) => ({
   ajustarNumerosRifa: async (cotistaId, cotasAntigas, cotasNovas) => {
     try {
       const numerosAtuais = get().getNumerosRifaByCotista(cotistaId);
-      const numerosNecessarios = cotasNovas * 2;
+      const numerosNecessarios = cotasNovas * 5; // 5 números por cota
       const diferenca = numerosNecessarios - numerosAtuais.length;
       
       if (diferenca > 0) {
@@ -915,44 +915,27 @@ export const useAppStore = create((set, get) => ({
       const valorPremio = valorArrecadado * 0.20; // 20%
       const valorCaixinha = valorArrecadado * 0.80; // 80%
       
-      // Extrair números da Federal (5 prêmios)
+      // Extrair números da Federal (3 prêmios: 1º, 2º, 3º)
       const premios = [
         resultadoFederal.primeiro,
         resultadoFederal.segundo,
-        resultadoFederal.terceiro,
-        resultadoFederal.quarto,
-        resultadoFederal.quinto
+        resultadoFederal.terceiro
       ];
       
       let numeroVencedor = null;
       let cotistaVencedor = null;
       const premiosVerificados = [];
       
-      // 1. Verificar últimos 3 dígitos
+      // Verificar apenas últimos 3 dígitos de cada prêmio
       for (const premio of premios) {
         const ultimos3 = premio.slice(-3);
-        premiosVerificados.push({ premio, tipo: 'ultimos3', numero: ultimos3 });
+        premiosVerificados.push({ premio, numero: ultimos3 });
         
         const match = numerosAtivos.find(n => n.numero === ultimos3);
         if (match) {
           numeroVencedor = ultimos3;
           cotistaVencedor = match.cotista_id;
           break;
-        }
-      }
-      
-      // 2. Se não achou, verificar primeiros 3 dígitos
-      if (!numeroVencedor) {
-        for (const premio of premios) {
-          const primeiros3 = premio.slice(0, 3);
-          premiosVerificados.push({ premio, tipo: 'primeiros3', numero: primeiros3 });
-          
-          const match = numerosAtivos.find(n => n.numero === primeiros3);
-          if (match) {
-            numeroVencedor = primeiros3;
-            cotistaVencedor = match.cotista_id;
-            break;
-          }
         }
       }
       
