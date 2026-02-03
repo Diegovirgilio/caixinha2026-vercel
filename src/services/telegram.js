@@ -48,3 +48,14 @@ export const alertaNovoCadastro = async (cotistaNome, cotas) => {
 
   await enviarAlertaTelegram(mensagem);
 };
+
+export const alertaNovoEmprestimo = async (cotistaNome, valor) => {
+  const mensagem = `💰 <b>Nova Solicitação de Empréstimo!</b>
+
+👤 Cotista: <b>${cotistaNome}</b>
+💵 Valor: <b>R$ ${valor.toFixed(2)}</b>
+
+⏳ Aguardando sua aprovação.`;
+
+  await enviarAlertaTelegram(mensagem);
+};

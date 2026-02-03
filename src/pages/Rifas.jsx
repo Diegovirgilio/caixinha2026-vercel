@@ -23,10 +23,14 @@ const Rifas = () => {
   const [showSorteioModal, setShowSorteioModal] = useState(false);
   const [search, setSearch] = useState('');
   
+  // Mês vigente como padrão
+  const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0');
+  const anoAtual = String(new Date().getFullYear());
+  
   // Dados do sorteio
   const [sorteioData, setSorteioData] = useState({
-    mes: '01',
-    ano: '2026',
+    mes: mesAtual,
+    ano: anoAtual,
     dataSorteio: new Date().toISOString().split('T')[0],
     primeiro: '',
     segundo: '',
@@ -121,8 +125,8 @@ const Rifas = () => {
 
       setShowSorteioModal(false);
       setSorteioData({
-        mes: '01',
-        ano: '2026',
+        mes: mesAtual,
+        ano: anoAtual,
         dataSorteio: new Date().toISOString().split('T')[0],
         primeiro: '',
         segundo: '',
@@ -131,7 +135,12 @@ const Rifas = () => {
 
       setTimeout(() => setSuccess(''), 8000);
     } catch (err) {
-      setError(err.message || 'Erro ao realizar sorteio');
+      // Tratar erro de sorteio duplicado
+      if (err.message?.includes('unique_sorteio_mes') || err.message?.includes('duplicate key')) {
+        setError('Já existe um sorteio realizado para este mês. Cada mês pode ter apenas um sorteio.');
+      } else {
+        setError(err.message || 'Erro ao realizar sorteio');
+      }
     } finally {
       setLoading(false);
     }
@@ -315,13 +324,10 @@ const Rifas = () => {
                   Data
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Vencedor
+                  Vencedores
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Número
-                </th>
-                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Prêmio
+                  Prêmios
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Caixinha
@@ -329,42 +335,52 @@ const Rifas = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {(rifaSorteios || []).map(s => (
-                <tr key={s.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 font-medium">
-                    {s.mes_referencia}
-                  </td>
-                  <td className="px-6 py-4 text-center text-sm text-gray-500">
-                    {new Date(s.data_sorteio).toLocaleDateString('pt-BR')}
-                  </td>
-                  <td className="px-6 py-4">
-                    {s.cotista_vencedor ? (
-                      <div className="flex items-center gap-2">
-                        <Award className="text-yellow-500" size={18} />
-                        <span className="font-medium">{s.cotista_vencedor?.nome}</span>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">Ninguém</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    {s.numero_vencedor ? (
-                      <span className="px-2 py-1 bg-yellow-100 text-yellow-700 rounded font-mono font-medium">
-                        {s.numero_vencedor}
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-center text-green-600 font-medium">
-                    {formatCurrency(s.valor_premio || 0)}
-                  </td>
-                  <td className="px-6 py-4 text-center text-blue-600 font-medium">
-                    {formatCurrency(s.valor_caixinha || 0)}
-                  </td>
-                </tr>
-              ))}
+              {(rifaSorteios || []).map(s => {
+                const vencedoresList = s.vencedores || [];
+                return (
+                  <tr key={s.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 font-medium">
+                      {s.mes_referencia}
+                    </td>
+                    <td className="px-6 py-4 text-center text-sm text-gray-500">
+                      {new Date(s.data_sorteio).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="px-6 py-4">
+                      {vencedoresList.length > 0 ? (
+                        <div className="space-y-1">
+                          {vencedoresList.map((v, idx) => {
+                            const vencedorCotista = cotistas.find(c => c.id === v.cotista_id);
+                            const posicaoLabel = v.posicao === 'primeiro' ? '🥇' : v.posicao === 'segundo' ? '🥈' : '🥉';
+                            return (
+                              <div key={idx} className="flex items-center gap-2 text-sm">
+                                <span>{posicaoLabel}</span>
+                                <span className="font-medium">{vencedorCotista?.nome || 'Desconhecido'}</span>
+                                <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded font-mono text-xs">
+                                  {v.numero}
+                                </span>
+                                <span className="text-green-600 font-medium">
+                                  {formatCurrency(v.valor)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">Ninguém</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-center text-green-600 font-medium">
+                      {formatCurrency(s.valor_premio || 0)}
+                    </td>
+                    <td className="px-6 py-4 text-center text-blue-600 font-medium">
+                      {formatCurrency(s.valor_caixinha || 0)}
+                    </td>
+                  </tr>
+                );
+              })}
               {(!rifaSorteios || rifaSorteios.length === 0) && (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-6 py-8 text-center text-gray-500">
                     Nenhum sorteio realizado ainda
                   </td>
                 </tr>

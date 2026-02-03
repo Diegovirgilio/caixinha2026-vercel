@@ -102,15 +102,23 @@ const UserArea = () => {
       return; 
     }
     
+    // Calcular juros (à vista = 20%)
+    const taxaJuros = parseFloat(configuracoes?.juros_vista || 20);
+    const valorJuros = valor * (taxaJuros / 100);
+    const valorTotal = valor + valorJuros;
+    
     setEnviando(true);
     try {
       await emprestimosApi.solicitar({ 
         cotista_id: cotista.id, 
+        cotista_nome: cotista.nome,
         valor, 
         tipo: 'vista',
         parcelas: 1, 
         chave_pix: solicitacao.chavePix,
-        taxa_juros: 0
+        taxa_juros: taxaJuros,
+        valor_juros: valorJuros,
+        valor_total: valorTotal
       });
       setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada! Aguarde aprovação.' });
       setSolicitacao({ valor: '', chavePix: '' });
@@ -124,16 +132,20 @@ const UserArea = () => {
 
   // Calcular valores para pagamento de empréstimo
   const calcularPagamentoEmprestimo = () => {
-    if (!emprestimoSelecionado) return { juros20: 0, juros30: 0, totalQuitacao: 0, totalSoJuros: 0 };
+    if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30 };
     const principal = Number(emprestimoSelecionado.valor_emprestimo || 0);
-    const juros20 = principal * 0.20;
-    const juros30 = principal * 0.30;
+    const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
+    const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+    const jurosVista = principal * (taxaVista / 100);
+    const jurosParcelado = principal * (taxaParcelado / 100);
     return {
       principal,
-      juros20,
-      juros30,
-      totalQuitacao: principal + juros20,
-      totalSoJuros: juros30
+      taxaVista,
+      taxaParcelado,
+      jurosVista,
+      jurosParcelado,
+      totalQuitacao: principal + jurosVista,
+      totalSoJuros: jurosParcelado
     };
   };
 
@@ -149,13 +161,13 @@ const UserArea = () => {
   // Calcular valor a pagar baseado na opção selecionada
   const getValorPagamento = () => {
     if (!emprestimoSelecionado) return 0;
-    const { principal, juros30, totalQuitacao } = pagamentoCalc;
+    const { principal, jurosParcelado, totalQuitacao } = pagamentoCalc;
     
     switch (pagamentoEmprestimo.tipo) {
       case 'quitacao':
-        return totalQuitacao; // Principal + 20%
+        return totalQuitacao; // Principal + juros à vista
       case 'soJuros':
-        return juros30; // 30% do principal
+        return jurosParcelado; // Juros parcelado
       case 'parcial':
         return parseFloat(pagamentoEmprestimo.valorParcial) || 0;
       default:
@@ -215,7 +227,7 @@ const UserArea = () => {
         referencia_id: emprestimoSelecionado.id,
         valor_informado: valorPagamento,
         arquivo_url: publicUrl,
-        observacao: `Tipo: ${pagamentoEmprestimo.tipo === 'quitacao' ? 'Quitação Total (20%)' : pagamentoEmprestimo.tipo === 'soJuros' ? 'Só Juros (30%)' : 'Juros + Parcial (30%)'}`
+        observacao: `Tipo: ${pagamentoEmprestimo.tipo === 'quitacao' ? `Quitação Total (${pagamentoCalc.taxaVista}%)` : pagamentoEmprestimo.tipo === 'soJuros' ? `Só Juros (${pagamentoCalc.taxaParcelado}%)` : `Juros + Parcial (${pagamentoCalc.taxaParcelado}%)`}`
       });
       
       setUploadProgress(100);
@@ -394,7 +406,7 @@ const UserArea = () => {
               {valorEmprestimo > 0 && (
                 <div className="p-3 bg-white rounded-lg border">
                   <p className="text-sm text-gray-600">Valor solicitado: <span className="font-bold text-orange-600">{formatCurrency(valorEmprestimo)}</span></p>
-                  <p className="text-xs text-gray-500 mt-1">Juros serão definidos no momento do pagamento (20% quitação ou 30% parcial)</p>
+                  <p className="text-xs text-gray-500 mt-1">Juros serão definidos no momento do pagamento ({configuracoes?.juros_vista || 20}% quitação ou {configuracoes?.juros_parcelado || 30}% parcial)</p>
                 </div>
               )}
               
@@ -420,8 +432,10 @@ const UserArea = () => {
           <div className="space-y-3">
             {meusEmprestimos.map((emp) => {
               const principal = Number(emp.valor_emprestimo || 0);
-              const juros20 = principal * 0.20;
-              const juros30 = principal * 0.30;
+              const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
+              const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+              const jurosVista = principal * (taxaVista / 100);
+              const jurosParcelado = principal * (taxaParcelado / 100);
               
               return (
                 <div key={emp.id} className={`p-4 rounded-lg border ${emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -435,8 +449,8 @@ const UserArea = () => {
                       <p className="font-bold text-lg text-gray-800">Principal: {formatCurrency(principal)}</p>
                       {emp.status === 'ativo' && (
                         <div className="text-sm text-gray-600 mt-1">
-                          <p>Quitação (20%): {formatCurrency(principal + juros20)}</p>
-                          <p>Só Juros (30%): {formatCurrency(juros30)}</p>
+                          <p>Quitação ({taxaVista}%): {formatCurrency(principal + jurosVista)}</p>
+                          <p>Só Juros ({taxaParcelado}%): {formatCurrency(jurosParcelado)}</p>
                         </div>
                       )}
                       {emp.chave_pix && emp.status === 'pendente' && (
@@ -518,10 +532,24 @@ const UserArea = () => {
                   <Trophy size={16} className="text-yellow-500" />
                   Último sorteio: {rifaSorteios[0].mes_referencia}
                 </p>
-                {rifaSorteios[0].cotista_vencedor_id ? (
+                {rifaSorteios[0].vencedores && rifaSorteios[0].vencedores.length > 0 ? (
+                  <div className="space-y-1">
+                    {rifaSorteios[0].vencedores.map((v, idx) => {
+                      const vencedorCotista = cotistas?.find(c => c.id === v.cotista_id);
+                      const posicaoLabel = v.posicao === 'primeiro' ? '🥇' : v.posicao === 'segundo' ? '🥈' : '🥉';
+                      return (
+                        <p key={idx} className="text-sm text-gray-600 flex items-center gap-2">
+                          <span>{posicaoLabel}</span>
+                          <strong>{vencedorCotista?.nome || 'Desconhecido'}</strong>
+                          <span className="font-mono bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">{v.numero}</span>
+                          <span className="text-green-600 font-medium">{formatCurrency(v.valor)}</span>
+                        </p>
+                      );
+                    })}
+                  </div>
+                ) : rifaSorteios[0].cotista_vencedor_id ? (
                   <p className="text-sm text-gray-600">
                     Vencedor: <strong>{rifaSorteios[0].cotista_vencedor?.nome}</strong> 
-                    {' '}com o número <span className="font-mono bg-yellow-100 px-2 py-0.5 rounded">{rifaSorteios[0].numero_vencedor}</span>
                     {' '}- Prêmio: <strong className="text-green-600">{formatCurrency(rifaSorteios[0].valor_premio)}</strong>
                   </p>
                 ) : (
@@ -592,7 +620,7 @@ const UserArea = () => {
                     className="mr-3"
                   />
                   <div className="flex-1">
-                    <p className="font-medium text-gray-800">Quitação Total (20% juros)</p>
+                    <p className="font-medium text-gray-800">Quitação Total ({pagamentoCalc.taxaVista}% juros)</p>
                     <p className="text-sm text-green-600 font-bold">{formatCurrency(pagamentoCalc.totalQuitacao)}</p>
                   </div>
                 </label>
@@ -608,8 +636,8 @@ const UserArea = () => {
                     className="mr-3"
                   />
                   <div className="flex-1">
-                    <p className="font-medium text-gray-800">Só Juros (30%)</p>
-                    <p className="text-sm text-orange-600 font-bold">{formatCurrency(pagamentoCalc.juros30)}</p>
+                    <p className="font-medium text-gray-800">Só Juros ({pagamentoCalc.taxaParcelado}%)</p>
+                    <p className="text-sm text-orange-600 font-bold">{formatCurrency(pagamentoCalc.jurosParcelado)}</p>
                     <p className="text-xs text-gray-500">Principal continua: {formatCurrency(pagamentoCalc.principal)}</p>
                   </div>
                 </label>
@@ -625,8 +653,8 @@ const UserArea = () => {
                     className="mr-3"
                   />
                   <div className="flex-1">
-                    <p className="font-medium text-gray-800">Juros + Parte do Principal (30%)</p>
-                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.juros30)} (juros)</p>
+                    <p className="font-medium text-gray-800">Juros + Parte do Principal ({pagamentoCalc.taxaParcelado}%)</p>
+                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.jurosParcelado)} (juros)</p>
                   </div>
                 </label>
                 
@@ -639,11 +667,11 @@ const UserArea = () => {
                       value={pagamentoEmprestimo.valorParcial}
                       onChange={(e) => setPagamentoEmprestimo({ ...pagamentoEmprestimo, valorParcial: e.target.value })}
                       className="w-full px-3 py-2 border rounded-lg"
-                      placeholder={`Mínimo ${formatCurrency(pagamentoCalc.juros30)}`}
+                      placeholder={`Mínimo ${formatCurrency(pagamentoCalc.jurosParcelado)}`}
                     />
-                    {pagamentoEmprestimo.valorParcial && parseFloat(pagamentoEmprestimo.valorParcial) >= pagamentoCalc.juros30 && (
+                    {pagamentoEmprestimo.valorParcial && parseFloat(pagamentoEmprestimo.valorParcial) >= pagamentoCalc.jurosParcelado && (
                       <p className="text-xs text-blue-600 mt-1">
-                        Abate: {formatCurrency(pagamentoCalc.juros30)} (juros) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.juros30)} (principal)
+                        Abate: {formatCurrency(pagamentoCalc.jurosParcelado)} (juros) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.jurosParcelado)} (principal)
                       </p>
                     )}
                   </div>

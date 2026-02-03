@@ -198,7 +198,7 @@ export const emprestimosApi = {
     return data;
   },
 
-  async solicitar({ cotista_id, valor, tipo, parcelas, taxa_juros, chave_pix }) {
+  async solicitar({ cotista_id, valor, tipo, parcelas, taxa_juros, chave_pix, cotista_nome }) {
     const valor_juros = valor * (taxa_juros / 100);
     const valor_total = valor + valor_juros;
     const valor_parcela = tipo === 'parcelado' ? valor_total / parcelas : valor_total;
@@ -221,6 +221,15 @@ export const emprestimosApi = {
       .single();
     
     if (error) throw error;
+    
+    // Enviar alerta via Telegram
+    try {
+      const { alertaNovoEmprestimo } = await import('./telegram');
+      await alertaNovoEmprestimo(cotista_nome || 'Cotista', valor);
+    } catch (telegramError) {
+      console.log('Erro ao enviar alerta Telegram:', telegramError);
+    }
+    
     return data;
   },
 

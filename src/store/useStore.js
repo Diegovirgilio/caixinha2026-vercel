@@ -193,6 +193,7 @@ export const useAppStore = create((set, get) => ({
   cotistas: [],
   mensalidades: {},
   emprestimos: [],
+  emprestimos_pendentes: 0,
   rifas: [],
   cdi: [],
   comprovantes: [],
@@ -499,7 +500,11 @@ export const useAppStore = create((set, get) => ({
         .order('created_at', { ascending: false });
       
       if (error) throw error;
-      set({ emprestimos: data || [] });
+      
+      // Contar pendentes
+      const pendentes = (data || []).filter(e => e.status === 'pendente').length;
+      
+      set({ emprestimos: data || [], emprestimos_pendentes: pendentes });
       return data;
     } catch (error) {
       console.error('Erro ao carregar empréstimos:', error);
@@ -930,7 +935,8 @@ export const useAppStore = create((set, get) => ({
       
       // Verificar cada prêmio (pode ter até 3 vencedores)
       for (const premio of premiosFederal) {
-        const ultimos3 = premio.numero.slice(-3);
+        // Extrair últimos 3 dígitos e garantir formato com zeros à esquerda
+        const ultimos3 = premio.numero.slice(-3).padStart(3, '0');
         premiosVerificados.push({ premio: premio.numero, numero: ultimos3, valor: premio.valor });
         
         const match = numerosAtivos.find(n => n.numero === ultimos3);

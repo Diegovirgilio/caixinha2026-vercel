@@ -73,6 +73,71 @@ const ModalPix = ({ onClose, configuracoes }) => {
   );
 };
 
+// Modal Notificações Pendentes
+const ModalNotificacoes = ({ onClose, emprestimos, comprovantes, onNavigate }) => {
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+        <div className="bg-gradient-to-r from-orange-500 to-red-500 p-6 text-center">
+          <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+            <AlertCircle className="text-white" size={32} />
+          </div>
+          <h3 className="text-xl font-bold text-white">Atenção!</h3>
+          <p className="text-white/80 text-sm mt-1">Você tem itens pendentes</p>
+        </div>
+        <div className="p-6 space-y-3">
+          {emprestimos > 0 && (
+            <button
+              onClick={() => { onNavigate('emprestimos'); onClose(); }}
+              className="w-full p-4 bg-orange-50 border border-orange-200 rounded-lg flex items-center justify-between hover:bg-orange-100 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center">
+                  <DollarSign className="text-white" size={20} />
+                </div>
+                <div className="text-left">
+                  <p className="font-medium text-gray-800">Solicitações de Empréstimo</p>
+                  <p className="text-sm text-gray-500">Aguardando aprovação</p>
+                </div>
+              </div>
+              <span className="bg-orange-500 text-white text-sm font-bold px-3 py-1 rounded-full">
+                {emprestimos}
+              </span>
+            </button>
+          )}
+          
+          {comprovantes > 0 && (
+            <button
+              onClick={() => { onNavigate('comprovantes'); onClose(); }}
+              className="w-full p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between hover:bg-blue-100 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
+                  <FileCheck className="text-white" size={20} />
+                </div>
+                <div className="text-left">
+                  <p className="font-medium text-gray-800">Comprovantes</p>
+                  <p className="text-sm text-gray-500">Aguardando validação</p>
+                </div>
+              </div>
+              <span className="bg-blue-500 text-white text-sm font-bold px-3 py-1 rounded-full">
+                {comprovantes}
+              </span>
+            </button>
+          )}
+          
+          <button 
+            onClick={onClose} 
+            className="w-full mt-3 py-2 text-gray-600 hover:text-gray-800"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // Modal Trocar Senha
 const ModalTrocarSenha = ({ onClose }) => {
   const [senhaAtual, setSenhaAtual] = useState('');
@@ -200,6 +265,8 @@ const App = () => {
   const [connectionError, setConnectionError] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [showNotificacoesModal, setShowNotificacoesModal] = useState(false);
+  const [notificacoesChecked, setNotificacoesChecked] = useState(false);
 
   // Effect PWA: Capturar evento de instalação
   useEffect(() => {
@@ -258,15 +325,26 @@ const App = () => {
 
   // ==================== CONFIGURAÇÕES ====================
 
-  // Pegar número de comprovantes pendentes
-  const { comprovantes_pendentes } = useAppStore();
+  // Pegar número de comprovantes e empréstimos pendentes
+  const { comprovantes_pendentes, emprestimos_pendentes } = useAppStore();
+
+  // Effect 4: Mostrar notificações para admin
+  useEffect(() => {
+    if (cotista?.is_admin && !notificacoesChecked && !dataLoading) {
+      const totalPendentes = (comprovantes_pendentes || 0) + (emprestimos_pendentes || 0);
+      if (totalPendentes > 0) {
+        setShowNotificacoesModal(true);
+      }
+      setNotificacoesChecked(true);
+    }
+  }, [cotista, comprovantes_pendentes, emprestimos_pendentes, notificacoesChecked, dataLoading]);
 
   // Navegação
   const adminTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'cotistas', label: 'Cotistas', icon: Users },
     { id: 'mensalidades', label: 'Mensalidades', icon: Calendar },
-    { id: 'emprestimos', label: 'Empréstimos', icon: DollarSign },
+    { id: 'emprestimos', label: 'Empréstimos', icon: DollarSign, badge: emprestimos_pendentes },
     { id: 'comprovantes', label: 'Comprovantes', icon: FileCheck, badge: comprovantes_pendentes },
     { id: 'rifas', label: 'Rifas', icon: PiggyBank },
     { id: 'cdi', label: 'CDI', icon: TrendingUp },
@@ -471,6 +549,16 @@ const App = () => {
       
       {/* Modal Trocar Senha */}
       {showChangePasswordModal && <ModalTrocarSenha onClose={() => setShowChangePasswordModal(false)} />}
+
+      {/* Modal Notificações Pendentes */}
+      {showNotificacoesModal && (
+        <ModalNotificacoes 
+          onClose={() => setShowNotificacoesModal(false)} 
+          emprestimos={emprestimos_pendentes}
+          comprovantes={comprovantes_pendentes}
+          onNavigate={setCurrentTab}
+        />
+      )}
 
       {/* Banner Instalar App PWA */}
       {showInstallBanner && (

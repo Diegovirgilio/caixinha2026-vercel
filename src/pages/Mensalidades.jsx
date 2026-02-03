@@ -10,8 +10,13 @@ import { formatCurrency } from '../utils/formatters';
 
 const Mensalidades = () => {
   const { cotistas, mensalidades, loadCotistas, loadMensalidades, configuracoes } = useAppStore();
-  const [mesSelecionado, setMesSelecionado] = useState('01');
-  const [anoSelecionado, setAnoSelecionado] = useState('2026');
+  
+  // Mês vigente como padrão
+  const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0');
+  const anoAtual = String(new Date().getFullYear());
+  
+  const [mesSelecionado, setMesSelecionado] = useState(mesAtual);
+  const [anoSelecionado, setAnoSelecionado] = useState(anoAtual);
   const [search, setSearch] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [loading, setLoading] = useState(false);
