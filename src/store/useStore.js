@@ -198,6 +198,7 @@ export const useAppStore = create((set, get) => ({
   cdi: [],
   comprovantes: [],
   comprovantes_pendentes: 0,
+  juros_atraso: [],
   configuracoes: {},
   config: { ...CONFIG },
   isLoading: false,
@@ -310,7 +311,7 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  aprovarComprovante: async (comprovanteId, adminId, valorAprovado) => {
+  aprovarComprovante: async (comprovanteId, adminId, valorAprovado, jurosAtraso = 0) => {
     try {
       // Buscar comprovante
       const { data: comprovante } = await supabase
@@ -344,6 +345,23 @@ export const useAppStore = create((set, get) => ({
       
       if (updateError) throw updateError;
 
+      // Registrar juros por atraso se houver
+      if (jurosAtraso > 0) {
+        await supabase
+          .from('juros_atraso')
+          .insert({
+            cotista_id: comprovante.cotista_id,
+            comprovante_id: comprovanteId,
+            tipo: comprovante.tipo,
+            valor_juros: jurosAtraso,
+            mes_referencia: comprovante.mes_referencia,
+            registrado_por: adminId
+          });
+      }
+
+      // Valor que vai para o cotista (desconta juros)
+      const valorParaCotista = valorAprovado - jurosAtraso;
+
       // Só atualiza valor se NÃO tinha comprovante aprovado antes
       if (!jaTemAprovado) {
         // Atualizar mensalidade ou empréstimo
@@ -361,7 +379,7 @@ export const useAppStore = create((set, get) => ({
               valorTotalDevido += (mensalidade.cotista.cotas || 0) * 20;
             }
             
-            const novoValorPago = (mensalidade.valor_pago || 0) + valorAprovado;
+            const novoValorPago = (mensalidade.valor_pago || 0) + valorParaCotista;
             const status = novoValorPago >= valorTotalDevido ? 'pago' : 'parcial';
             
             await supabase
@@ -381,7 +399,7 @@ export const useAppStore = create((set, get) => ({
             .single();
           
           if (emprestimo) {
-            const novoValorPago = (emprestimo.valor_pago || 0) + valorAprovado;
+            const novoValorPago = (emprestimo.valor_pago || 0) + valorParaCotista;
             const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
             
             await supabase
@@ -397,6 +415,7 @@ export const useAppStore = create((set, get) => ({
       }
 
       await get().loadComprovantes();
+      await get().loadJurosAtraso();
       await get().loadMensalidades();
       await get().loadEmprestimos();
       return true;
@@ -661,6 +680,45 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
+  // ===== JUROS POR ATRASO =====
+  loadJurosAtraso: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('juros_atraso')
+        .select(`*, cotista:cotistas!juros_atraso_cotista_id_fkey(id, nome)`)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      set({ juros_atraso: data || [] });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar juros por atraso:', error);
+      return [];
+    }
+  },
+
+  registrarJurosAtraso: async (dados) => {
+    try {
+      const { data, error } = await supabase
+        .from('juros_atraso')
+        .insert(dados)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      await get().loadJurosAtraso();
+      return data;
+    } catch (error) {
+      console.error('Erro ao registrar juros por atraso:', error);
+      throw error;
+    }
+  },
+
+  getTotalJurosAtraso: () => {
+    const { juros_atraso } = get();
+    return (juros_atraso || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+  },
+
   // ===== INICIALIZAÇÃO =====
   initializeData: () => {
     // Não faz nada - dados vêm do Supabase
@@ -679,7 +737,8 @@ export const useAppStore = create((set, get) => ({
         get().loadCdi(),
         get().loadComprovantes(),
         get().loadRifaNumeros(),
-        get().loadRifaSorteios()
+        get().loadRifaSorteios(),
+        get().loadJurosAtraso()
       ]);
       set({ isOnline: true });
     } catch (error) {

@@ -190,9 +190,9 @@ const UserArea = () => {
 
     // Validar pagamento parcial (deve ser maior que os juros)
     if (pagamentoEmprestimo.tipo === 'parcial') {
-      const { juros30 } = pagamentoCalc;
-      if (valorPagamento < juros30) {
-        setMensagem({ tipo: 'erro', texto: `Pagamento parcial deve ser no mínimo ${formatCurrency(juros30)} (juros)` });
+      const { jurosParcelado } = pagamentoCalc;
+      if (valorPagamento < jurosParcelado) {
+        setMensagem({ tipo: 'erro', texto: `Pagamento parcial deve ser no mínimo ${formatCurrency(jurosParcelado)} (juros)` });
         return;
       }
     }

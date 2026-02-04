@@ -2,11 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, Search, Plus, Edit2, Trash2, UserCheck, UserX,
   ChevronUp, ChevronDown, Loader2, X, Save, AlertTriangle, Info,
-  Mail, CheckCircle, RefreshCw, Phone, Clock, Gift, Hash, Eye, EyeOff, Lock
+  Mail, CheckCircle, RefreshCw, Phone, Clock, Gift, Hash, Eye, EyeOff, Lock, FileText
 } from 'lucide-react';
 import { useAppStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { formatCurrency } from '../utils/formatters';
+import ExtratoCotista from './ExtratoCotista';
 
 const Cotistas = () => {
   const { 
@@ -27,6 +28,7 @@ const Cotistas = () => {
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editingCotista, setEditingCotista] = useState(null);
+  const [showExtrato, setShowExtrato] = useState(null);
   const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -641,6 +643,14 @@ const Cotistas = () => {
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-2">
                       <button
+                        onClick={() => setShowExtrato(cotista)}
+                        disabled={loading}
+                        className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg disabled:opacity-50"
+                        title="Ver Extrato"
+                      >
+                        <FileText size={18} />
+                      </button>
+                      <button
                         onClick={() => openEditModal(cotista)}
                         disabled={loading}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
@@ -826,6 +836,14 @@ const Cotistas = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Extrato */}
+      {showExtrato && (
+        <ExtratoCotista 
+          cotista={showExtrato} 
+          onClose={() => setShowExtrato(null)} 
+        />
       )}
     </div>
   );

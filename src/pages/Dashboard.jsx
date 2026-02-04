@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { 
   DollarSign, TrendingUp, Users, Calendar, PiggyBank, 
-  AlertCircle, CheckCircle, Clock, ArrowUpRight, ArrowDownRight
+  AlertCircle, CheckCircle, Clock, ArrowUpRight, ArrowDownRight, Wallet
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { dashboardApi } from '../services/api';
 import { formatCurrency, formatPercent } from '../utils/formatters';
 
 const Dashboard = () => {
-  const { cotistas, emprestimos, rifas, cdi, getTotalCotas, getTotalInvestido, configuracoes } = useAppStore();
+  const { cotistas, emprestimos, rifas, cdi, getTotalCotas, getTotalInvestido, configuracoes, mensalidades, rifaSorteios, juros_atraso } = useAppStore();
   const { cotista } = useAuthStore();
   const [resumo, setResumo] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -43,6 +43,40 @@ const Dashboard = () => {
 
   const totalCotas = resumo?.totalCotas || totalCotasCalc;
   const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0);
+  
+  // ===== SALDO EM CONTA (Caixa Real) =====
+  // Entradas (+)
+  const mensalidadesPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+  
+  const rifasPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => {
+      const cot = cotistas.find(c => c.id === m.cotista_id);
+      return cot?.participa_rifa && (m.status === 'pago' || m.status === 'parcial');
+    })
+    .reduce((sum, m) => {
+      const cot = cotistas.find(c => c.id === m.cotista_id);
+      return sum + ((cot?.cotas || 0) * 20);
+    }, 0);
+  
+  const emprestimosQuitados = (emprestimos || [])
+    .filter(e => e.status === 'pago')
+    .reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
+  
+  const totalJurosAtraso = (juros_atraso || [])
+    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+  
+  // Saídas (-)
+  const emprestimosAtivos = (emprestimos || [])
+    .filter(e => e.status === 'ativo')
+    .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+  
+  const premiosRifaPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+  
+  // Saldo Final
+  const saldoEmConta = mensalidadesPagas + rifasPagas + emprestimosQuitados + totalJurosAtraso - emprestimosAtivos - premiosRifaPagos;
   
   // Empréstimos pendentes de aprovação (excluindo admins)
   const emprestimosPendentes = (emprestimos || []).filter(e => {
@@ -90,6 +124,28 @@ const Dashboard = () => {
         <div className="text-right">
           <p className="text-sm text-gray-500">Patrimônio Total</p>
           <p className="text-3xl font-bold text-blue-600">{formatCurrency(patrimonioTotal)}</p>
+        </div>
+      </div>
+
+      {/* Card Saldo em Conta - Destaque */}
+      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl shadow-lg p-6 text-white">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <Wallet size={24} />
+              <p className="text-lg font-medium opacity-90">Saldo em Conta</p>
+            </div>
+            <p className="text-4xl font-bold">{formatCurrency(saldoEmConta)}</p>
+            <p className="text-sm opacity-80 mt-2">Dinheiro disponível na caixinha</p>
+          </div>
+          <div className="text-right text-sm opacity-80 space-y-1">
+            <p>+ Mensalidades: {formatCurrency(mensalidadesPagas)}</p>
+            <p>+ Rifas: {formatCurrency(rifasPagas)}</p>
+            <p>+ Empréstimos quitados: {formatCurrency(emprestimosQuitados)}</p>
+            {totalJurosAtraso > 0 && <p>+ Juros atraso: {formatCurrency(totalJurosAtraso)}</p>}
+            <p className="text-orange-200">- Empréstimos ativos: {formatCurrency(emprestimosAtivos)}</p>
+            <p className="text-orange-200">- Prêmios rifa: {formatCurrency(premiosRifaPagos)}</p>
+          </div>
         </div>
       </div>
 

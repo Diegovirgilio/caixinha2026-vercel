@@ -18,6 +18,7 @@ const Comprovantes = () => {
   const [showEnviarModal, setShowEnviarModal] = useState(false);
   const [selectedComprovante, setSelectedComprovante] = useState(null);
   const [valorAprovado, setValorAprovado] = useState('');
+  const [jurosAtraso, setJurosAtraso] = useState('');
   const [motivoRejeicao, setMotivoRejeicao] = useState('');
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
@@ -56,6 +57,7 @@ const Comprovantes = () => {
   const openModal = (comprovante) => {
     setSelectedComprovante(comprovante);
     setValorAprovado(String(comprovante.valor_informado));
+    setJurosAtraso('');
     setMotivoRejeicao('');
     setError('');
     setShowModal(true);
@@ -68,12 +70,25 @@ const Comprovantes = () => {
       return;
     }
 
+    const juros = parseFloat(jurosAtraso) || 0;
+    if (juros < 0) {
+      setError('Juros não pode ser negativo');
+      return;
+    }
+    if (juros >= valor) {
+      setError('Juros não pode ser maior ou igual ao valor depositado');
+      return;
+    }
+
     setLoading(true);
     try {
-      await aprovarComprovante(selectedComprovante.id, cotista.id, valor);
+      await aprovarComprovante(selectedComprovante.id, cotista.id, valor, juros);
       setShowModal(false);
-      setSuccess('Comprovante aprovado com sucesso!');
-      setTimeout(() => setSuccess(''), 3000);
+      setSuccess(juros > 0 
+        ? `Comprovante aprovado! R$ ${juros.toFixed(2)} registrado como juros por atraso.`
+        : 'Comprovante aprovado com sucesso!'
+      );
+      setTimeout(() => setSuccess(''), 4000);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -558,7 +573,7 @@ const Comprovantes = () => {
               {/* Valor a Aprovar */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Valor a Aprovar (R$)
+                  Valor Depositado (R$)
                 </label>
                 <input
                   type="number"
@@ -568,9 +583,42 @@ const Comprovantes = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                   placeholder="0,00"
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Pode ajustar o valor se necessário (ex: pagamento parcial)
+              </div>
+
+              {/* Juros por Atraso */}
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <label className="block text-sm font-medium text-orange-700 mb-1">
+                  Juros por Atraso (R$)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={jurosAtraso}
+                  onChange={(e) => setJurosAtraso(e.target.value)}
+                  className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+                  placeholder="0,00"
+                />
+                <p className="text-xs text-orange-600 mt-2">
+                  Se houver juros por atraso, informe o valor. Este valor vai para a caixinha.
                 </p>
+                
+                {/* Resumo do cálculo */}
+                {parseFloat(jurosAtraso) > 0 && parseFloat(valorAprovado) > 0 && (
+                  <div className="mt-3 pt-3 border-t border-orange-200 space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Valor depositado:</span>
+                      <span className="font-medium">{formatCurrency(parseFloat(valorAprovado))}</span>
+                    </div>
+                    <div className="flex justify-between text-orange-600">
+                      <span>Juros por atraso:</span>
+                      <span className="font-medium">- {formatCurrency(parseFloat(jurosAtraso))}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-green-700 pt-1 border-t border-orange-200">
+                      <span>Valor p/ cotista:</span>
+                      <span>{formatCurrency(parseFloat(valorAprovado) - parseFloat(jurosAtraso))}</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Motivo de Rejeição */}
