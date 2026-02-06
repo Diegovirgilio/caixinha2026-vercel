@@ -46,18 +46,19 @@ const Dashboard = () => {
   
   // ===== SALDO EM CONTA (Caixa Real) =====
   // Entradas (+)
+  // Mensalidades = valor_devido (só as cotas, sem rifa)
   const mensalidadesPagas = Object.values(mensalidades || {}).flat()
     .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+    .reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
   
+  // Rifas = valor_pago - valor_devido (a diferença é a rifa)
   const rifasPagas = Object.values(mensalidades || {}).flat()
-    .filter(m => {
-      const cot = cotistas.find(c => c.id === m.cotista_id);
-      return cot?.participa_rifa && (m.status === 'pago' || m.status === 'parcial');
-    })
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => {
-      const cot = cotistas.find(c => c.id === m.cotista_id);
-      return sum + ((cot?.cotas || 0) * 20);
+      const valorPago = Number(m.valor_pago || 0);
+      const valorDevido = Number(m.valor_devido || 0);
+      const diferencaRifa = valorPago - valorDevido;
+      return sum + (diferencaRifa > 0 ? diferencaRifa : 0);
     }, 0);
   
   const emprestimosQuitados = (emprestimos || [])
