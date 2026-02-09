@@ -12,6 +12,7 @@ const Rifas = () => {
     cotistas, 
     rifaNumeros, 
     rifaSorteios,
+    mensalidades,
     loadRifaNumeros,
     loadRifaSorteios,
     realizarSorteio 
@@ -62,9 +63,22 @@ const Rifas = () => {
   // Estatísticas
   const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
   const totalNumeros = (rifaNumeros || []).length;
-  const valorMensal = totalCotas * 20;
-  const totalPremios = 350; // R$ 200 + R$ 100 + R$ 50
-  const valorCaixinha = valorMensal - totalPremios;
+  
+  // Valor real arrecadado com rifas (do banco, onde status = pago/parcial)
+  const valorRifaArrecadado = Object.values(mensalidades || {}).flat()
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  // Prêmios já pagos
+  const totalPremiosPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+  
+  // Valor que foi para caixinha
+  const valorCaixinhaReal = valorRifaArrecadado - totalPremiosPagos;
+  
+  // Estimativa mensal (para exibição)
+  const valorMensalEstimado = totalCotas * 20;
+  const totalPremiosMes = 350; // R$ 200 + R$ 100 + R$ 50
 
   // Meses disponíveis
   const mesesOpcoes = [
@@ -206,10 +220,10 @@ const Rifas = () => {
         <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
             <DollarSign size={16} />
-            Arrecadação/Mês
+            Arrecadado (Real)
           </div>
-          <p className="text-2xl font-bold text-green-600">{formatCurrency(valorMensal)}</p>
-          <p className="text-xs text-gray-500">R$ 20 por cota</p>
+          <p className="text-2xl font-bold text-green-600">{formatCurrency(valorRifaArrecadado)}</p>
+          <p className="text-xs text-gray-500">Estimado/mês: {formatCurrency(valorMensalEstimado)}</p>
         </div>
         
         <div className="bg-white rounded-xl shadow p-4">
@@ -217,8 +231,17 @@ const Rifas = () => {
             <Trophy size={16} />
             Prêmios
           </div>
-          <p className="text-2xl font-bold text-yellow-600">{formatCurrency(350)}</p>
+          <p className="text-2xl font-bold text-yellow-600">{formatCurrency(totalPremiosMes)}</p>
           <p className="text-xs text-gray-500">R$ 200 + R$ 100 + R$ 50</p>
+        </div>
+        
+        <div className="bg-white rounded-xl shadow p-4">
+          <div className="flex items-center gap-2 text-gray-500 text-sm mb-1">
+            <Gift size={16} />
+            P/ Caixinha
+          </div>
+          <p className="text-2xl font-bold text-blue-600">{formatCurrency(valorCaixinhaReal)}</p>
+          <p className="text-xs text-gray-500">Arrecadado - Prêmios pagos</p>
         </div>
       </div>
 
@@ -470,14 +493,14 @@ const Rifas = () => {
                   <strong> {totalCotas}</strong> cotas
                 </p>
                 <p className="text-gray-600">
-                  Arrecadação: <strong className="text-green-600">{formatCurrency(valorMensal)}</strong>
+                  Arrecadação estimada: <strong className="text-green-600">{formatCurrency(valorMensalEstimado)}</strong>
                 </p>
                 <div className="text-gray-600 mt-1">
                   <p className="font-medium text-purple-700">Prêmios:</p>
                   <p>1º lugar: <strong className="text-yellow-600">R$ 200,00</strong></p>
                   <p>2º lugar: <strong className="text-gray-600">R$ 100,00</strong></p>
                   <p>3º lugar: <strong className="text-orange-600">R$ 50,00</strong></p>
-                  <p className="mt-1">Caixinha: <strong className="text-blue-600">{formatCurrency(valorCaixinha)}</strong></p>
+                  <p className="mt-1">P/ Caixinha (estimado): <strong className="text-blue-600">{formatCurrency(valorMensalEstimado - totalPremiosMes)}</strong></p>
                 </div>
               </div>
             </div>

@@ -29,7 +29,7 @@ const Cotistas = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingCotista, setEditingCotista] = useState(null);
   const [showExtrato, setShowExtrato] = useState(null);
-  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '' });
+  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80 });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loadingRifa, setLoadingRifa] = useState(null); // ID do cotista com loading
@@ -93,7 +93,7 @@ const Cotistas = () => {
 
   const openAddModal = () => {
     setEditingCotista(null);
-    setFormData({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '' });
+    setFormData({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80 });
     setShowPassword(false);
     setError('');
     setShowModal(true);
@@ -107,7 +107,8 @@ const Cotistas = () => {
       cotas: cotista.cotas || 1,
       telefone: cotista.telefone || '',
       participa_rifa: cotista.participa_rifa || false,
-      senha: ''
+      senha: '',
+      limite_emprestimo: cotista.limite_emprestimo || 80
     });
     setError('');
     setShowModal(true);
@@ -154,7 +155,8 @@ const Cotistas = () => {
             nome: formData.nome.trim(),
             email: formData.email || null,
             cotas: parseInt(formData.cotas),
-            telefone: formData.telefone || null
+            telefone: formData.telefone || null,
+            limite_emprestimo: parseInt(formData.limite_emprestimo) || 80
           })
           .eq('id', editingCotista.id)
           .select();
@@ -361,16 +363,23 @@ const Cotistas = () => {
 
       // Buscar valor por cota das configurações
       const valorPorCota = parseFloat(configuracoes?.valor_por_cota || 50);
+      const valorRifaPorCota = 20; // R$ 20 por cota para rifa
       
       // Gerar mensalidades para o cotista aprovado
       const { CONFIG } = await import('../utils/constants');
-      const mensalidades = CONFIG.MESES.map(mes => ({
-        cotista_id: cotista.id,
-        mes_referencia: mes,
-        valor_devido: (cotista.cotas || 1) * valorPorCota,
-        valor_pago: 0,
-        status: 'pendente'
-      }));
+      const mensalidades = CONFIG.MESES.map(mes => {
+        const valorMensalidade = (cotista.cotas || 1) * valorPorCota;
+        const valorRifa = cotista.participa_rifa ? (cotista.cotas || 1) * valorRifaPorCota : 0;
+        
+        return {
+          cotista_id: cotista.id,
+          mes_referencia: mes,
+          valor_devido: valorMensalidade,
+          valor_rifa: valorRifa,
+          valor_pago: 0,
+          status: 'pendente'
+        };
+      });
       
       await supabase.from('mensalidades').insert(mensalidades);
 
@@ -813,6 +822,24 @@ const Cotistas = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="(00) 00000-0000"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Limite de Empréstimo (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={formData.limite_emprestimo}
+                      onChange={(e) => setFormData({ ...formData, limite_emprestimo: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="80"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Percentual do valor investido que pode solicitar empréstimo
+                    </p>
                   </div>
                 </div>
               </div>

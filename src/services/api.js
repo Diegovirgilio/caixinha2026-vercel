@@ -234,12 +234,17 @@ export const emprestimosApi = {
   },
 
   async aprovar(id, aprovadorId) {
+    // Calcular vencimento: mesmo dia do mês seguinte
+    const hoje = new Date();
+    const vencimento = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
+    
     const { data, error } = await supabase
       .from('emprestimos')
       .update({
         status: 'ativo',
         aprovado_por: aprovadorId,
-        data_aprovacao: new Date().toISOString()
+        data_aprovacao: new Date().toISOString(),
+        data_vencimento: vencimento.toISOString().split('T')[0]
       })
       .eq('id', id)
       .select()

@@ -34,8 +34,9 @@ const Emprestimos = () => {
   // Filtrar apenas cotistas (não admins)
   const apenasContistas = cotistas.filter(c => !c.is_admin && c.status === 'ativo');
 
-  // Calcular limite de empréstimo por cotista
+  // Calcular limite de empréstimo por cotista (usando limite individual)
   const calcularLimite = (cotistaId) => {
+    const cotistaData = cotistas.find(c => c.id === cotistaId);
     let totalPago = 0;
     Object.values(mensalidades).forEach(mes => {
       if (Array.isArray(mes)) {
@@ -43,7 +44,8 @@ const Emprestimos = () => {
         if (registro) totalPago += Number(registro.valor_pago || 0);
       }
     });
-    return totalPago * 0.8; // 80% do investido
+    const percentual = (cotistaData?.limite_emprestimo || 80) / 100;
+    return totalPago * percentual;
   };
 
   // Filtrar empréstimos (excluindo admins)
@@ -245,12 +247,17 @@ const Emprestimos = () => {
 
     setLoading(true);
     try {
+      // Calcular vencimento: mesmo dia do mês seguinte
+      const hoje = new Date();
+      const vencimento = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
+      
       const { error: updateError } = await supabase
         .from('emprestimos')
         .update({
           status: 'ativo',
           aprovado_por: cotista.id,
-          data_aprovacao: new Date().toISOString()
+          data_aprovacao: new Date().toISOString(),
+          data_vencimento: vencimento.toISOString().split('T')[0]
         })
         .eq('id', emprestimo.id);
 
@@ -521,6 +528,9 @@ const Emprestimos = () => {
                   Total c/ Juros
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Vencimento
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Status
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
@@ -556,6 +566,31 @@ const Emprestimos = () => {
                   </td>
                   <td className="px-6 py-4 text-center font-medium">
                     {formatCurrency(e.valor_total)}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    {e.data_vencimento ? (
+                      (() => {
+                        const hoje = new Date();
+                        const vencimento = new Date(e.data_vencimento);
+                        const diasAtraso = e.status === 'ativo' ? Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)) : 0;
+                        const estaAtrasado = diasAtraso > 0;
+                        
+                        return (
+                          <div>
+                            <span className={`text-sm ${estaAtrasado ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                              {vencimento.toLocaleDateString('pt-BR')}
+                            </span>
+                            {estaAtrasado && (
+                              <p className="text-xs text-red-500 font-medium">
+                                {diasAtraso} dia(s) atraso
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <span className="text-gray-400 text-sm">-</span>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-center">
                     {getStatusBadge(e.status)}

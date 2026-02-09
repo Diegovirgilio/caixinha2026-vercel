@@ -437,20 +437,45 @@ const UserArea = () => {
               const jurosVista = principal * (taxaVista / 100);
               const jurosParcelado = principal * (taxaParcelado / 100);
               
+              // Calcular atraso
+              const hoje = new Date();
+              const vencimento = emp.data_vencimento ? new Date(emp.data_vencimento) : null;
+              const diasAtraso = vencimento && emp.status === 'ativo' 
+                ? Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)))
+                : 0;
+              const jurosAtraso = diasAtraso > 0 ? principal * (diasAtraso * 0.01) : 0;
+              const estaAtrasado = diasAtraso > 0;
+              
               return (
-                <div key={emp.id} className={`p-4 rounded-lg border ${emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
+                <div key={emp.id} className={`p-4 rounded-lg border ${estaAtrasado ? 'bg-red-50 border-red-300' : emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="flex flex-col sm:flex-row justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 mb-1">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_EMPRESTIMO_COLORS[emp.status]}`}>
                           {STATUS_EMPRESTIMO_LABELS[emp.status]}
                         </span>
+                        {estaAtrasado && (
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500 text-white flex items-center gap-1">
+                            <AlertTriangle size={12} />
+                            {diasAtraso} dia(s) em atraso
+                          </span>
+                        )}
                       </div>
                       <p className="font-bold text-lg text-gray-800">Principal: {formatCurrency(principal)}</p>
                       {emp.status === 'ativo' && (
                         <div className="text-sm text-gray-600 mt-1">
+                          {vencimento && (
+                            <p className={`font-medium ${estaAtrasado ? 'text-red-600' : 'text-blue-600'}`}>
+                              Vencimento: {vencimento.toLocaleDateString('pt-BR')}
+                            </p>
+                          )}
                           <p>Quitação ({taxaVista}%): {formatCurrency(principal + jurosVista)}</p>
                           <p>Só Juros ({taxaParcelado}%): {formatCurrency(jurosParcelado)}</p>
+                          {estaAtrasado && (
+                            <p className="text-red-600 font-medium mt-1">
+                              + Juros atraso (1%/dia): {formatCurrency(jurosAtraso)}
+                            </p>
+                          )}
                         </div>
                       )}
                       {emp.chave_pix && emp.status === 'pendente' && (

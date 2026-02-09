@@ -51,15 +51,10 @@ const Dashboard = () => {
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
   
-  // Rifas = valor_pago - valor_devido (a diferença é a rifa)
+  // Rifas = valor_rifa do banco (onde status = pago/parcial)
   const rifasPagas = Object.values(mensalidades || {}).flat()
     .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => {
-      const valorPago = Number(m.valor_pago || 0);
-      const valorDevido = Number(m.valor_devido || 0);
-      const diferencaRifa = valorPago - valorDevido;
-      return sum + (diferencaRifa > 0 ? diferencaRifa : 0);
-    }, 0);
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
   
   const emprestimosQuitados = (emprestimos || [])
     .filter(e => e.status === 'pago')
@@ -83,6 +78,14 @@ const Dashboard = () => {
   const emprestimosPendentes = (emprestimos || []).filter(e => {
     const cotistaEmprestimo = (cotistas || []).find(c => c.id === e.cotista_id);
     return e.status === 'pendente' && !cotistaEmprestimo?.is_admin;
+  });
+
+  // Empréstimos em atraso (vencidos)
+  const hoje = new Date();
+  const emprestimosAtrasados = (emprestimos || []).filter(e => {
+    if (e.status !== 'ativo' || !e.data_vencimento) return false;
+    const vencimento = new Date(e.data_vencimento);
+    return hoje > vencimento;
   });
 
   const StatCard = ({ title, value, icon: Icon, color, subtext, trend }) => (
@@ -180,6 +183,43 @@ const Dashboard = () => {
           subtext={`${emprestimos.filter(e => e.status === 'ativo').length} em aberto`}
         />
       </div>
+
+      {/* Alerta de empréstimos em atraso */}
+      {emprestimosAtrasados.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
+              <AlertCircle className="text-white" size={20} />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-red-800">⚠️ Empréstimos em Atraso</h3>
+              <p className="text-sm text-red-600">{emprestimosAtrasados.length} empréstimo(s) com vencimento ultrapassado</p>
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {emprestimosAtrasados.map(emp => {
+              const cotistaEmp = cotistas.find(c => c.id === emp.cotista_id);
+              const vencimento = new Date(emp.data_vencimento);
+              const diasAtraso = Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24));
+              const jurosAtraso = Number(emp.valor_emprestimo) * (diasAtraso * 0.01);
+              return (
+                <div key={emp.id} className="bg-white p-3 rounded-lg border border-red-200 flex justify-between items-center">
+                  <div>
+                    <p className="font-medium text-gray-800">{cotistaEmp?.nome || 'Cotista'}</p>
+                    <p className="text-sm text-gray-600">
+                      Principal: {formatCurrency(emp.valor_emprestimo)} • Venceu: {vencimento.toLocaleDateString('pt-BR')}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-red-600 font-bold">{diasAtraso} dias</p>
+                    <p className="text-xs text-red-500">+{formatCurrency(jurosAtraso)} juros</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Segunda linha de cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

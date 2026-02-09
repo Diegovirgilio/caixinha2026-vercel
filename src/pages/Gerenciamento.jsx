@@ -122,15 +122,24 @@ const Gerenciamento = () => {
     setLoading(true);
     try {
       const valorPorCota = parseFloat(configForm.valor_por_cota) || 50;
+      const valorRifaPorCota = 20; // R$ 20 por cota para rifa
 
       for (const mes of CONFIG.MESES) {
-        const mensalidadesParaInserir = cotistas.map(c => ({
-          cotista_id: c.id,
-          mes_referencia: mes,
-          valor_devido: c.cotas * valorPorCota,
-          valor_pago: 0,
-          status: 'pendente'
-        }));
+        const mensalidadesParaInserir = cotistas
+          .filter(c => !c.is_admin && c.status === 'ativo')
+          .map(c => {
+            const valorMensalidade = c.cotas * valorPorCota;
+            const valorRifa = c.participa_rifa ? c.cotas * valorRifaPorCota : 0;
+            
+            return {
+              cotista_id: c.id,
+              mes_referencia: mes,
+              valor_devido: valorMensalidade,
+              valor_rifa: valorRifa,
+              valor_pago: 0,
+              status: 'pendente'
+            };
+          });
 
         const { error } = await supabase
           .from('mensalidades')

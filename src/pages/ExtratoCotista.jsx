@@ -28,11 +28,14 @@ const ExtratoCotista = ({ cotista, onClose }) => {
 
   // ===== CÁLCULOS DO COTISTA =====
 
-  // 1. Total Investido (mensalidades pagas)
+  // 1. Total Investido (mensalidades pagas - só cotas, sem rifa)
   const mensalidadesCotista = Object.values(mensalidades || {}).flat()
     .filter(m => m.cotista_id === cotista.id && (m.status === 'pago' || m.status === 'parcial'));
   
-  const totalInvestido = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+  const totalInvestido = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
+  
+  // 1b. Total Rifa paga pelo cotista
+  const totalRifaPaga = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
 
   // 2. Bônus de Juros de Empréstimos
   // 60% se ele pegou o empréstimo + 40% proporcional para todos
@@ -76,8 +79,8 @@ const ExtratoCotista = ({ cotista, onClose }) => {
     }
   });
 
-  // 7. Saldo Final
-  const saldoFinal = totalInvestido + bonusJuros + bonusJurosAtraso + bonusCDI + bonusRifa + premiosRifaGanhos;
+  // 7. Saldo Final (investido + rifa paga + bônus)
+  const saldoFinal = totalInvestido + totalRifaPaga + bonusJuros + bonusJurosAtraso + bonusCDI + bonusRifa + premiosRifaGanhos;
 
   // ===== HISTÓRICO DE RENDIMENTOS =====
   const historicoRendimentos = [];
@@ -201,9 +204,15 @@ const ExtratoCotista = ({ cotista, onClose }) => {
             
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Investido (mensalidades)</span>
+                <span className="text-gray-600">Mensalidades (cotas)</span>
                 <span className="font-medium">{formatCurrency(totalInvestido)}</span>
               </div>
+              {totalRifaPaga > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Rifa paga</span>
+                  <span className="font-medium">{formatCurrency(totalRifaPaga)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Bônus Juros Empréstimos</span>
                 <span className="font-medium text-green-600">+ {formatCurrency(bonusJuros)}</span>

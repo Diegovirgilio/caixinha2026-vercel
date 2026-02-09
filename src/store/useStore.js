@@ -402,12 +402,20 @@ export const useAppStore = create((set, get) => ({
             const novoValorPago = (emprestimo.valor_pago || 0) + valorParaCotista;
             const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
             
+            // Se não quitou, mover vencimento para próximo mês
+            let novoVencimento = emprestimo.data_vencimento;
+            if (status === 'ativo') {
+              const vencimentoAtual = emprestimo.data_vencimento ? new Date(emprestimo.data_vencimento) : new Date();
+              novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+            }
+            
             await supabase
               .from('emprestimos')
               .update({
                 valor_pago: novoValorPago,
                 status,
-                data_quitacao: status === 'pago' ? new Date().toISOString() : null
+                data_quitacao: status === 'pago' ? new Date().toISOString() : null,
+                data_vencimento: status === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
               })
               .eq('id', comprovante.referencia_id);
           }
@@ -792,8 +800,10 @@ export const useAppStore = create((set, get) => ({
 
   getLimiteEmprestimo: (cotistaId) => {
     const investido = get().getInvestidoByCotista(cotistaId);
-    const { configuracoes } = get();
-    const percentual = parseFloat(configuracoes.limite_emprestimo_percent || 80) / 100;
+    const { cotistas } = get();
+    const cotista = cotistas.find(c => c.id === cotistaId);
+    // Usa limite individual do cotista, ou 80% como padrão
+    const percentual = (cotista?.limite_emprestimo || 80) / 100;
     return investido * percentual;
   },
 
