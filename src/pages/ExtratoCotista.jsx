@@ -38,18 +38,26 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   const totalRifaPaga = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
 
   // 2. Bônus de Juros de Empréstimos
-  // 60% se ele pegou o empréstimo + 40% proporcional para todos
+  // Normal: 60% se ele pegou o empréstimo + 40% proporcional para todos
+  // Caixinha: 100% proporcional para todos
   const emprestimosQuitados = (emprestimos || []).filter(e => e.status === 'pago');
   
   let bonusJuros = 0;
   emprestimosQuitados.forEach(emp => {
     const jurosTotal = Number(emp.valor_juros || 0);
-    // 60% para quem pegou
-    if (emp.cotista_id === cotista.id) {
-      bonusJuros += jurosTotal * 0.6;
+    const modalidade = emp.modalidade || 'normal';
+    
+    if (modalidade === 'caixinha') {
+      // 100% proporcional para todos
+      bonusJuros += (jurosTotal * participacao) / 100;
+    } else {
+      // 60% para quem pegou
+      if (emp.cotista_id === cotista.id) {
+        bonusJuros += jurosTotal * 0.6;
+      }
+      // 40% proporcional para todos
+      bonusJuros += (jurosTotal * 0.4 * participacao) / 100;
     }
-    // 40% proporcional para todos
-    bonusJuros += (jurosTotal * 0.4 * participacao) / 100;
   });
 
   // 3. Bônus de Juros por Atraso (proporcional às cotas)

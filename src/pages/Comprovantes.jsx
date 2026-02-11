@@ -12,6 +12,8 @@ const Comprovantes = () => {
   const { cotista } = useAuthStore();
   const { comprovantes, loadComprovantes, aprovarComprovante, rejeitarComprovante, cotistas, mensalidades, emprestimos, loadCotistas, loadMensalidades, loadEmprestimos } = useAppStore();
   const [filtroStatus, setFiltroStatus] = useState('pendente');
+  const [filtroTipo, setFiltroTipo] = useState('todos');
+  const [filtroMes, setFiltroMes] = useState('todos');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -39,12 +41,17 @@ const Comprovantes = () => {
     loadEmprestimos();
   }, []);
 
+  // Obter meses únicos dos comprovantes
+  const mesesDisponiveis = [...new Set(comprovantes.map(c => c.mes_referencia).filter(Boolean))].sort();
+
   // Filtrar comprovantes
   const comprovantesFiltrados = comprovantes
     .filter(c => {
       const matchSearch = c.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
       const matchStatus = filtroStatus === 'todos' || c.status === filtroStatus;
-      return matchSearch && matchStatus;
+      const matchTipo = filtroTipo === 'todos' || c.tipo === filtroTipo;
+      const matchMes = filtroMes === 'todos' || c.mes_referencia === filtroMes;
+      return matchSearch && matchStatus && matchTipo && matchMes;
     });
 
   // Estatísticas
@@ -370,8 +377,8 @@ const Comprovantes = () => {
 
       {/* Filtros */}
       <div className="bg-white rounded-xl shadow-lg p-4">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1 relative">
+        <div className="flex flex-col sm:flex-row gap-4 flex-wrap">
+          <div className="flex-1 relative min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
             <input
               type="text"
@@ -386,10 +393,29 @@ const Comprovantes = () => {
             onChange={(e) => setFiltroStatus(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
           >
-            <option value="todos">Todos</option>
+            <option value="todos">Todos Status</option>
             <option value="pendente">Pendentes</option>
             <option value="aprovado">Aprovados</option>
             <option value="rejeitado">Rejeitados</option>
+          </select>
+          <select
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="todos">Todos Tipos</option>
+            <option value="mensalidade">Mensalidade</option>
+            <option value="emprestimo">Empréstimo</option>
+          </select>
+          <select
+            value={filtroMes}
+            onChange={(e) => setFiltroMes(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="todos">Todos os Meses</option>
+            {mesesDisponiveis.map(mes => (
+              <option key={mes} value={mes}>{mes}</option>
+            ))}
           </select>
         </div>
       </div>

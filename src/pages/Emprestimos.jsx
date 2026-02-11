@@ -522,6 +522,9 @@ const Emprestimos = () => {
                   Tipo
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                  Modalidade
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
                   Valor
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">
@@ -560,6 +563,15 @@ const Emprestimos = () => {
                     </span>
                     <br />
                     <span className="text-xs text-gray-500">{e.taxa_juros}% juros</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                      e.modalidade === 'caixinha' 
+                        ? 'bg-blue-100 text-blue-700' 
+                        : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {e.modalidade === 'caixinha' ? '💰 Caixinha' : 'Normal'}
+                    </span>
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
                     {formatCurrency(e.valor_emprestimo)}

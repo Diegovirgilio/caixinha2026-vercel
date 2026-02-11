@@ -198,7 +198,7 @@ export const emprestimosApi = {
     return data;
   },
 
-  async solicitar({ cotista_id, valor, tipo, parcelas, taxa_juros, chave_pix, cotista_nome }) {
+  async solicitar({ cotista_id, valor, tipo, parcelas, taxa_juros, chave_pix, cotista_nome, modalidade = 'normal' }) {
     const valor_juros = valor * (taxa_juros / 100);
     const valor_total = valor + valor_juros;
     const valor_parcela = tipo === 'parcelado' ? valor_total / parcelas : valor_total;
@@ -215,6 +215,7 @@ export const emprestimosApi = {
         valor_total,
         valor_parcela,
         chave_pix,
+        modalidade,
         status: 'pendente'
       })
       .select()

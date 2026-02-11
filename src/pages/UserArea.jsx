@@ -12,7 +12,7 @@ import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
-  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios, cotistas } = useAppStore();
+  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios, cotistas, juros_atraso } = useAppStore();
   const { setShowPixModal, setShowChangePasswordModal } = useUIStore();
   
   const [minhasMensalidades, setMinhasMensalidades] = useState([]);
@@ -20,7 +20,7 @@ const UserArea = () => {
   const [meusComprovantes, setMeusComprovantes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showSolicitacao, setShowSolicitacao] = useState(false);
-  const [solicitacao, setSolicitacao] = useState({ valor: '', chavePix: '' });
+  const [solicitacao, setSolicitacao] = useState({ valor: '', chavePix: '', modalidade: 'normal' });
   const [showComprovante, setShowComprovante] = useState(false);
   const [comprovanteData, setComprovanteData] = useState({ tipo: 'mensalidade', referencia_id: '', mes_referencia: '', valor_informado: '', arquivo: null });
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -75,13 +75,26 @@ const UserArea = () => {
   const totalCDI = (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0);
   const bonusCDI = (totalCDI * participacao) / 100;
   
+  // Bônus Juros por Atraso: proporcional às cotas
+  const totalJurosAtrasoGeral = (juros_atraso || []).reduce((s, j) => s + Number(j.valor_juros || 0), 0);
+  const bonusJurosAtraso = (totalJurosAtrasoGeral * participacao) / 100;
+  
   const jurosRecebidos = (emprestimos || []).filter(e => e.status === 'pago').reduce((total, emp) => {
     const jurosTotal = Number(emp.valor_juros || 0);
-    let bonus = emp.cotista_id === cotista?.id ? jurosTotal * 0.6 : 0;
-    bonus += (jurosTotal * 0.4 * participacao) / 100;
+    // Verificar modalidade: caixinha = 100% proporcional, normal = 60% tomador + 40% proporcional
+    const modalidade = emp.modalidade || 'normal';
+    let bonus = 0;
+    if (modalidade === 'caixinha') {
+      // 100% proporcional para todos
+      bonus = (jurosTotal * participacao) / 100;
+    } else {
+      // 60% para quem pegou + 40% proporcional
+      bonus = emp.cotista_id === cotista?.id ? jurosTotal * 0.6 : 0;
+      bonus += (jurosTotal * 0.4 * participacao) / 100;
+    }
     return total + bonus;
   }, 0);
-  const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI;
+  const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI + bonusJurosAtraso;
   
   // Cálculo do valor do empréstimo solicitado
   const valorEmprestimo = parseFloat(solicitacao.valor) || 0;
@@ -118,10 +131,11 @@ const UserArea = () => {
         chave_pix: solicitacao.chavePix,
         taxa_juros: taxaJuros,
         valor_juros: valorJuros,
-        valor_total: valorTotal
+        valor_total: valorTotal,
+        modalidade: solicitacao.modalidade
       });
       setMensagem({ tipo: 'sucesso', texto: 'Solicitação enviada! Aguarde aprovação.' });
-      setSolicitacao({ valor: '', chavePix: '' });
+      setSolicitacao({ valor: '', chavePix: '', modalidade: 'normal' });
       setShowSolicitacao(false);
       setMeusEmprestimos(await emprestimosApi.getByCotista(cotista.id));
     } catch (error) { 
@@ -314,10 +328,13 @@ const UserArea = () => {
 
       <div className="bg-white p-6 rounded-xl shadow-lg">
         <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><TrendingUp className="text-green-600" size={20} />Seus Bônus</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="p-4 bg-green-50 rounded-lg"><p className="text-sm text-gray-600">Juros Recebidos</p><p className="text-xl font-bold text-green-700">{formatCurrency(jurosRecebidos)}</p></div>
           <div className="p-4 bg-purple-50 rounded-lg"><p className="text-sm text-gray-600">Bônus Rifas</p><p className="text-xl font-bold text-purple-700">{formatCurrency(bonusRifas)}</p></div>
           <div className="p-4 bg-blue-50 rounded-lg"><p className="text-sm text-gray-600">Rendimento CDI</p><p className="text-xl font-bold text-blue-700">{formatCurrency(bonusCDI)}</p></div>
+          {bonusJurosAtraso > 0 && (
+            <div className="p-4 bg-orange-50 rounded-lg"><p className="text-sm text-gray-600">Juros por Atraso</p><p className="text-xl font-bold text-orange-700">{formatCurrency(bonusJurosAtraso)}</p></div>
+          )}
         </div>
       </div>
 
@@ -380,6 +397,37 @@ const UserArea = () => {
           <div className="mb-6 p-4 bg-orange-50 rounded-lg border border-orange-200">
             <h3 className="font-medium text-orange-800 mb-3">Nova Solicitação de Empréstimo</h3>
             <div className="space-y-4">
+              {/* Modalidade */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Modalidade *</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setSolicitacao({ ...solicitacao, modalidade: 'normal' })}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      solicitacao.modalidade === 'normal'
+                        ? 'border-orange-500 bg-orange-100'
+                        : 'border-gray-200 hover:border-orange-300'
+                    }`}
+                  >
+                    <p className="font-medium text-gray-800">Normal</p>
+                    <p className="text-xs text-gray-500">60% juros p/ você, 40% p/ todos</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSolicitacao({ ...solicitacao, modalidade: 'caixinha' })}
+                    className={`p-3 rounded-lg border-2 text-left transition-all ${
+                      solicitacao.modalidade === 'caixinha'
+                        ? 'border-blue-500 bg-blue-100'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <p className="font-medium text-gray-800">Caixinha</p>
+                    <p className="text-xs text-gray-500">100% juros p/ todos</p>
+                  </button>
+                </div>
+              </div>
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Valor desejado *</label>
                 <input 
@@ -404,9 +452,12 @@ const UserArea = () => {
               </div>
               
               {valorEmprestimo > 0 && (
-                <div className="p-3 bg-white rounded-lg border">
+                <div className={`p-3 rounded-lg border ${solicitacao.modalidade === 'caixinha' ? 'bg-blue-50 border-blue-200' : 'bg-white border-gray-200'}`}>
                   <p className="text-sm text-gray-600">Valor solicitado: <span className="font-bold text-orange-600">{formatCurrency(valorEmprestimo)}</span></p>
                   <p className="text-xs text-gray-500 mt-1">Juros serão definidos no momento do pagamento ({configuracoes?.juros_vista || 20}% quitação ou {configuracoes?.juros_parcelado || 30}% parcial)</p>
+                  {solicitacao.modalidade === 'caixinha' && (
+                    <p className="text-xs text-blue-600 font-medium mt-1">✓ 100% dos juros será distribuído entre todos os cotistas</p>
+                  )}
                 </div>
               )}
               
@@ -414,7 +465,9 @@ const UserArea = () => {
                 <button 
                   onClick={handleSolicitarEmprestimo} 
                   disabled={enviando} 
-                  className="flex-1 bg-orange-500 text-white py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 hover:bg-orange-600"
+                  className={`flex-1 text-white py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 ${
+                    solicitacao.modalidade === 'caixinha' ? 'bg-blue-500 hover:bg-blue-600' : 'bg-orange-500 hover:bg-orange-600'
+                  }`}
                 >
                   <Send size={16} />
                   {enviando ? 'Enviando...' : 'Enviar Solicitação'}
@@ -450,9 +503,12 @@ const UserArea = () => {
                 <div key={emp.id} className={`p-4 rounded-lg border ${estaAtrasado ? 'bg-red-50 border-red-300' : emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
                   <div className="flex flex-col sm:flex-row justify-between gap-3">
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_EMPRESTIMO_COLORS[emp.status]}`}>
                           {STATUS_EMPRESTIMO_LABELS[emp.status]}
+                        </span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${emp.modalidade === 'caixinha' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                          {emp.modalidade === 'caixinha' ? '💰 Caixinha' : 'Normal'}
                         </span>
                         {estaAtrasado && (
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-500 text-white flex items-center gap-1">
@@ -475,6 +531,9 @@ const UserArea = () => {
                             <p className="text-red-600 font-medium mt-1">
                               + Juros atraso (1%/dia): {formatCurrency(jurosAtraso)}
                             </p>
+                          )}
+                          {emp.modalidade === 'caixinha' && (
+                            <p className="text-blue-600 text-xs mt-1">✓ 100% dos juros distribuído entre todos</p>
                           )}
                         </div>
                       )}
