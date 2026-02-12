@@ -798,12 +798,19 @@ export const useAppStore = create((set, get) => ({
     return total;
   },
 
-  getLimiteEmprestimo: (cotistaId) => {
+  getLimiteEmprestimo: (cotistaId, modalidade = 'normal') => {
     const investido = get().getInvestidoByCotista(cotistaId);
     const { cotistas } = get();
     const cotista = cotistas.find(c => c.id === cotistaId);
-    // Usa limite individual do cotista, ou 80% como padrão
-    const percentual = (cotista?.limite_emprestimo || 80) / 100;
+    
+    // Usa limite conforme modalidade
+    let percentual;
+    if (modalidade === 'caixinha') {
+      percentual = (cotista?.limite_emprestimo_caixinha || 100) / 100;
+    } else {
+      percentual = (cotista?.limite_emprestimo || 80) / 100;
+    }
+    
     return investido * percentual;
   },
 

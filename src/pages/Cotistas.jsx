@@ -29,7 +29,7 @@ const Cotistas = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingCotista, setEditingCotista] = useState(null);
   const [showExtrato, setShowExtrato] = useState(null);
-  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80 });
+  const [formData, setFormData] = useState({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80, limite_emprestimo_caixinha: 100 });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loadingRifa, setLoadingRifa] = useState(null); // ID do cotista com loading
@@ -93,7 +93,7 @@ const Cotistas = () => {
 
   const openAddModal = () => {
     setEditingCotista(null);
-    setFormData({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80 });
+    setFormData({ nome: '', email: '', cotas: 1, telefone: '', participa_rifa: false, senha: '', limite_emprestimo: 80, limite_emprestimo_caixinha: 100 });
     setShowPassword(false);
     setError('');
     setShowModal(true);
@@ -108,7 +108,8 @@ const Cotistas = () => {
       telefone: cotista.telefone || '',
       participa_rifa: cotista.participa_rifa || false,
       senha: '',
-      limite_emprestimo: cotista.limite_emprestimo || 80
+      limite_emprestimo: cotista.limite_emprestimo || 80,
+      limite_emprestimo_caixinha: cotista.limite_emprestimo_caixinha || 100
     });
     setError('');
     setShowModal(true);
@@ -156,7 +157,8 @@ const Cotistas = () => {
             email: formData.email || null,
             cotas: parseInt(formData.cotas),
             telefone: formData.telefone || null,
-            limite_emprestimo: parseInt(formData.limite_emprestimo) || 80
+            limite_emprestimo: parseInt(formData.limite_emprestimo) || 80,
+            limite_emprestimo_caixinha: parseInt(formData.limite_emprestimo_caixinha) || 100
           })
           .eq('id', editingCotista.id)
           .select();
@@ -826,19 +828,37 @@ const Cotistas = () => {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Limite de Empréstimo (%)
+                      Limite Empréstimo Normal (%)
                     </label>
                     <input
                       type="number"
                       min="0"
-                      max="100"
+                      max="200"
                       value={formData.limite_emprestimo}
                       onChange={(e) => setFormData({ ...formData, limite_emprestimo: parseInt(e.target.value) || 0 })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                       placeholder="80"
                     />
                     <p className="text-xs text-gray-500 mt-1">
-                      Percentual do valor investido que pode solicitar empréstimo
+                      60% juros p/ tomador + 40% proporcional
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Limite Empréstimo Caixinha (%)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="200"
+                      value={formData.limite_emprestimo_caixinha}
+                      onChange={(e) => setFormData({ ...formData, limite_emprestimo_caixinha: parseInt(e.target.value) || 0 })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="100"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      100% juros proporcional p/ todos
                     </p>
                   </div>
                 </div>

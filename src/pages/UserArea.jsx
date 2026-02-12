@@ -60,7 +60,10 @@ const UserArea = () => {
 
   const totalCotas = getTotalCotas();
   const investido = getInvestidoByCotista(cotista?.id);
-  const limite = getLimiteEmprestimo(cotista?.id);
+  const limiteNormal = getLimiteEmprestimo(cotista?.id, 'normal');
+  const limiteCaixinha = getLimiteEmprestimo(cotista?.id, 'caixinha');
+  // Limite dinâmico conforme modalidade selecionada
+  const limite = solicitacao.modalidade === 'caixinha' ? limiteCaixinha : limiteNormal;
   const participacao = totalCotas > 0 ? ((cotista?.cotas || 0) / totalCotas) * 100 : 0;
   
   // Bônus Rifa: (valor_caixinha dos sorteios) / participantes da rifa
@@ -412,6 +415,7 @@ const UserArea = () => {
                   >
                     <p className="font-medium text-gray-800">Normal</p>
                     <p className="text-xs text-gray-500">60% juros p/ você, 40% p/ todos</p>
+                    <p className="text-xs text-orange-600 font-medium mt-1">Limite: {formatCurrency(limiteNormal)}</p>
                   </button>
                   <button
                     type="button"
@@ -424,6 +428,7 @@ const UserArea = () => {
                   >
                     <p className="font-medium text-gray-800">Caixinha</p>
                     <p className="text-xs text-gray-500">100% juros p/ todos</p>
+                    <p className="text-xs text-blue-600 font-medium mt-1">Limite: {formatCurrency(limiteCaixinha)}</p>
                   </button>
                 </div>
               </div>
@@ -437,7 +442,9 @@ const UserArea = () => {
                   className="w-full px-4 py-2 border rounded-lg" 
                   placeholder="0,00" 
                 />
-                <p className="text-xs text-gray-500 mt-1">Limite disponível: {formatCurrency(limite)}</p>
+                <p className={`text-xs mt-1 ${solicitacao.modalidade === 'caixinha' ? 'text-blue-600' : 'text-orange-600'}`}>
+                  Limite disponível ({solicitacao.modalidade === 'caixinha' ? 'Caixinha' : 'Normal'}): {formatCurrency(limite)}
+                </p>
               </div>
               
               <div>
