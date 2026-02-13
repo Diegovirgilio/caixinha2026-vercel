@@ -82,21 +82,28 @@ const UserArea = () => {
   const totalJurosAtrasoGeral = (juros_atraso || []).reduce((s, j) => s + Number(j.valor_juros || 0), 0);
   const bonusJurosAtraso = (totalJurosAtrasoGeral * participacao) / 100;
   
-  const jurosRecebidos = (emprestimos || []).filter(e => e.status === 'pago').reduce((total, emp) => {
+  // Calcular juros SEPARADOS
+  const emprestimosQuitados = (emprestimos || []).filter(e => e.status === 'pago');
+  
+  let juros60 = 0;  // 60% do tomador (empréstimo normal)
+  let juros40 = 0;  // 40% proporcional (empréstimo normal)
+  let jurosCaixinha = 0;  // 100% proporcional (empréstimo caixinha)
+  
+  emprestimosQuitados.forEach(emp => {
     const jurosTotal = Number(emp.valor_juros || 0);
-    // Verificar modalidade: caixinha = 100% proporcional, normal = 60% tomador + 40% proporcional
     const modalidade = emp.modalidade || 'normal';
-    let bonus = 0;
+    
     if (modalidade === 'caixinha') {
-      // 100% proporcional para todos
-      bonus = (jurosTotal * participacao) / 100;
+      jurosCaixinha += (jurosTotal * participacao) / 100;
     } else {
-      // 60% para quem pegou + 40% proporcional
-      bonus = emp.cotista_id === cotista?.id ? jurosTotal * 0.6 : 0;
-      bonus += (jurosTotal * 0.4 * participacao) / 100;
+      if (emp.cotista_id === cotista?.id) {
+        juros60 += jurosTotal * 0.6;
+      }
+      juros40 += (jurosTotal * 0.4 * participacao) / 100;
     }
-    return total + bonus;
-  }, 0);
+  });
+  
+  const jurosRecebidos = juros60 + juros40 + jurosCaixinha;
   const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI + bonusJurosAtraso;
   
   // Cálculo do valor do empréstimo solicitado
@@ -331,12 +338,42 @@ const UserArea = () => {
 
       <div className="bg-white p-6 rounded-xl shadow-lg">
         <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><TrendingUp className="text-green-600" size={20} />Seus Bônus</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-green-50 rounded-lg"><p className="text-sm text-gray-600">Juros Recebidos</p><p className="text-xl font-bold text-green-700">{formatCurrency(jurosRecebidos)}</p></div>
-          <div className="p-4 bg-purple-50 rounded-lg"><p className="text-sm text-gray-600">Bônus Rifas</p><p className="text-xl font-bold text-purple-700">{formatCurrency(bonusRifas)}</p></div>
-          <div className="p-4 bg-blue-50 rounded-lg"><p className="text-sm text-gray-600">Rendimento CDI</p><p className="text-xl font-bold text-blue-700">{formatCurrency(bonusCDI)}</p></div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {juros60 > 0 && (
+            <div className="p-3 bg-green-50 rounded-lg">
+              <p className="text-xs text-gray-600">Juros 60%</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(juros60)}</p>
+              <p className="text-xs text-gray-500">seu empréstimo</p>
+            </div>
+          )}
+          {juros40 > 0 && (
+            <div className="p-3 bg-green-50 rounded-lg">
+              <p className="text-xs text-gray-600">Juros 40%</p>
+              <p className="text-lg font-bold text-green-700">{formatCurrency(juros40)}</p>
+              <p className="text-xs text-gray-500">proporcional</p>
+            </div>
+          )}
+          {jurosCaixinha > 0 && (
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <p className="text-xs text-gray-600">Juros Caixinha</p>
+              <p className="text-lg font-bold text-blue-700">{formatCurrency(jurosCaixinha)}</p>
+              <p className="text-xs text-gray-500">proporcional</p>
+            </div>
+          )}
+          <div className="p-3 bg-purple-50 rounded-lg">
+            <p className="text-xs text-gray-600">Bônus Rifas</p>
+            <p className="text-lg font-bold text-purple-700">{formatCurrency(bonusRifas)}</p>
+          </div>
+          <div className="p-3 bg-cyan-50 rounded-lg">
+            <p className="text-xs text-gray-600">Rendimento CDI</p>
+            <p className="text-lg font-bold text-cyan-700">{formatCurrency(bonusCDI)}</p>
+          </div>
           {bonusJurosAtraso > 0 && (
-            <div className="p-4 bg-orange-50 rounded-lg"><p className="text-sm text-gray-600">Juros por Atraso</p><p className="text-xl font-bold text-orange-700">{formatCurrency(bonusJurosAtraso)}</p></div>
+            <div className="p-3 bg-orange-50 rounded-lg">
+              <p className="text-xs text-gray-600">Juros por Atraso</p>
+              <p className="text-lg font-bold text-orange-700">{formatCurrency(bonusJurosAtraso)}</p>
+              <p className="text-xs text-gray-500">proporcional</p>
+            </div>
           )}
         </div>
       </div>

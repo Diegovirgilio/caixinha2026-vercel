@@ -37,28 +37,35 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   // 1b. Total Rifa paga pelo cotista
   const totalRifaPaga = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
 
-  // 2. Bônus de Juros de Empréstimos
-  // Normal: 60% se ele pegou o empréstimo + 40% proporcional para todos
-  // Caixinha: 100% proporcional para todos
+  // 2. Bônus de Juros de Empréstimos - SEPARADOS
   const emprestimosQuitados = (emprestimos || []).filter(e => e.status === 'pago');
   
-  let bonusJuros = 0;
+  // Juros 60% - só quem pegou empréstimo normal
+  let juros60 = 0;
+  // Juros 40% - proporcional de empréstimos normais
+  let juros40 = 0;
+  // Juros Caixinha - 100% proporcional de empréstimos caixinha
+  let jurosCaixinha = 0;
+  
   emprestimosQuitados.forEach(emp => {
     const jurosTotal = Number(emp.valor_juros || 0);
     const modalidade = emp.modalidade || 'normal';
     
     if (modalidade === 'caixinha') {
       // 100% proporcional para todos
-      bonusJuros += (jurosTotal * participacao) / 100;
+      jurosCaixinha += (jurosTotal * participacao) / 100;
     } else {
       // 60% para quem pegou
       if (emp.cotista_id === cotista.id) {
-        bonusJuros += jurosTotal * 0.6;
+        juros60 += jurosTotal * 0.6;
       }
       // 40% proporcional para todos
-      bonusJuros += (jurosTotal * 0.4 * participacao) / 100;
+      juros40 += (jurosTotal * 0.4 * participacao) / 100;
     }
   });
+  
+  // Total de juros (para manter compatibilidade)
+  const bonusJuros = juros60 + juros40 + jurosCaixinha;
 
   // 3. Bônus de Juros por Atraso (proporcional às cotas)
   const totalJurosAtrasoGeral = (juros_atraso || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
@@ -96,18 +103,25 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   // Juros de empréstimos quitados
   emprestimosQuitados.forEach(emp => {
     const jurosTotal = Number(emp.valor_juros || 0);
+    const modalidade = emp.modalidade || 'normal';
     let valorRecebido = 0;
     
-    if (emp.cotista_id === cotista.id) {
-      valorRecebido += jurosTotal * 0.6;
+    if (modalidade === 'caixinha') {
+      // 100% proporcional para todos
+      valorRecebido = (jurosTotal * participacao) / 100;
+    } else {
+      // Normal: 60% para quem pegou + 40% proporcional
+      if (emp.cotista_id === cotista.id) {
+        valorRecebido += jurosTotal * 0.6;
+      }
+      valorRecebido += (jurosTotal * 0.4 * participacao) / 100;
     }
-    valorRecebido += (jurosTotal * 0.4 * participacao) / 100;
     
     if (valorRecebido > 0) {
       const cotistaEmp = cotistas.find(c => c.id === emp.cotista_id);
       historicoRendimentos.push({
         tipo: 'juros_emprestimo',
-        descricao: `Juros empréstimo de ${cotistaEmp?.nome || 'Cotista'}`,
+        descricao: `Juros empréstimo ${modalidade === 'caixinha' ? '(Caixinha)' : ''} de ${cotistaEmp?.nome || 'Cotista'}`,
         valor: valorRecebido,
         data: emp.data_quitacao || emp.updated_at
       });
@@ -221,14 +235,31 @@ const ExtratoCotista = ({ cotista, onClose }) => {
                   <span className="font-medium">{formatCurrency(totalRifaPaga)}</span>
                 </div>
               )}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Bônus Juros Empréstimos</span>
-                <span className="font-medium text-green-600">+ {formatCurrency(bonusJuros)}</span>
-              </div>
+              
+              {/* Juros separados */}
+              {juros60 > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Juros 60% (seu empréstimo)</span>
+                  <span className="font-medium text-green-600">+ {formatCurrency(juros60)}</span>
+                </div>
+              )}
+              {juros40 > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Juros 40% (proporcional)</span>
+                  <span className="font-medium text-green-600">+ {formatCurrency(juros40)}</span>
+                </div>
+              )}
+              {jurosCaixinha > 0 && (
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Juros Caixinha (proporcional)</span>
+                  <span className="font-medium text-blue-600">+ {formatCurrency(jurosCaixinha)}</span>
+                </div>
+              )}
+              
               {bonusJurosAtraso > 0 && (
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Bônus Juros por Atraso</span>
-                  <span className="font-medium text-green-600">+ {formatCurrency(bonusJurosAtraso)}</span>
+                  <span className="font-medium text-orange-600">+ {formatCurrency(bonusJurosAtraso)}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm">
