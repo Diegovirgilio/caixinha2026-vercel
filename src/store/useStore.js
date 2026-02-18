@@ -800,7 +800,7 @@ export const useAppStore = create((set, get) => ({
 
   getLimiteEmprestimo: (cotistaId, modalidade = 'normal') => {
     const investido = get().getInvestidoByCotista(cotistaId);
-    const { cotistas } = get();
+    const { cotistas, emprestimos } = get();
     const cotista = cotistas.find(c => c.id === cotistaId);
     
     // Usa limite conforme modalidade
@@ -811,7 +811,18 @@ export const useAppStore = create((set, get) => ({
       percentual = (cotista?.limite_emprestimo || 80) / 100;
     }
     
-    return investido * percentual;
+    const limiteTotal = investido * percentual;
+    
+    // Descontar empréstimos ativos e pendentes DA MESMA MODALIDADE
+    const emprestimosAtivos = (emprestimos || [])
+      .filter(e => 
+        e.cotista_id === cotistaId && 
+        (e.status === 'ativo' || e.status === 'pendente') &&
+        (e.modalidade || 'normal') === modalidade
+      )
+      .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+    
+    return Math.max(0, limiteTotal - emprestimosAtivos);
   },
 
   // ===== SISTEMA DE RIFAS =====
