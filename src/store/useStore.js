@@ -362,10 +362,10 @@ export const useAppStore = create((set, get) => ({
       // Valor que vai para o cotista (desconta juros)
       const valorParaCotista = valorAprovado - jurosAtraso;
 
-      // Só atualiza valor se NÃO tinha comprovante aprovado antes
-      if (!jaTemAprovado) {
-        // Atualizar mensalidade ou empréstimo
-        if (comprovante.tipo === 'mensalidade') {
+      // Para mensalidades: só atualiza se NÃO tinha comprovante aprovado antes
+      // Para empréstimos: SEMPRE atualiza (pode ter múltiplos pagamentos)
+      if (comprovante.tipo === 'mensalidade') {
+        if (!jaTemAprovado) {
           const { data: mensalidade } = await supabase
             .from('mensalidades')
             .select('*, cotista:cotistas(id, cotas, participa_rifa)')
@@ -391,33 +391,48 @@ export const useAppStore = create((set, get) => ({
               })
               .eq('id', comprovante.referencia_id);
           }
-        } else if (comprovante.tipo === 'emprestimo') {
-          const { data: emprestimo } = await supabase
-            .from('emprestimos')
-            .select('*')
-            .eq('id', comprovante.referencia_id)
-            .single();
+        }
+      } else if (comprovante.tipo === 'emprestimo') {
+        // Empréstimo: SEMPRE atualiza (múltiplos pagamentos permitidos)
+        const { data: emprestimo } = await supabase
+          .from('emprestimos')
+          .select('*')
+          .eq('id', comprovante.referencia_id)
+          .single();
+        
+        if (emprestimo) {
+          const valorPagoAtual = Number(emprestimo.valor_pago || 0);
+          const valorTotalEmprestimo = Number(emprestimo.valor_total || 0);
+          const novoValorPago = valorPagoAtual + valorParaCotista;
+          const status = novoValorPago >= valorTotalEmprestimo ? 'pago' : 'ativo';
           
-          if (emprestimo) {
-            const novoValorPago = (emprestimo.valor_pago || 0) + valorParaCotista;
-            const status = novoValorPago >= emprestimo.valor_total ? 'pago' : 'ativo';
-            
-            // Se não quitou, mover vencimento para próximo mês
-            let novoVencimento = emprestimo.data_vencimento;
-            if (status === 'ativo') {
-              const vencimentoAtual = emprestimo.data_vencimento ? new Date(emprestimo.data_vencimento) : new Date();
-              novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
-            }
-            
-            await supabase
-              .from('emprestimos')
-              .update({
-                valor_pago: novoValorPago,
-                status,
-                data_quitacao: status === 'pago' ? new Date().toISOString() : null,
-                data_vencimento: status === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
-              })
-              .eq('id', comprovante.referencia_id);
+          console.log('Aprovando empréstimo:', {
+            valorPagoAtual,
+            valorParaCotista,
+            novoValorPago,
+            valorTotalEmprestimo,
+            status
+          });
+          
+          // Se não quitou, mover vencimento para próximo mês
+          let novoVencimento = emprestimo.data_vencimento;
+          if (status === 'ativo') {
+            const vencimentoAtual = emprestimo.data_vencimento ? new Date(emprestimo.data_vencimento) : new Date();
+            novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+          }
+          
+          const { error: empError } = await supabase
+            .from('emprestimos')
+            .update({
+              valor_pago: novoValorPago,
+              status,
+              data_quitacao: status === 'pago' ? new Date().toISOString() : null,
+              data_vencimento: status === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
+            })
+            .eq('id', comprovante.referencia_id);
+          
+          if (empError) {
+            console.error('Erro ao atualizar empréstimo:', empError);
           }
         }
       }

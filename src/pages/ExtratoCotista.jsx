@@ -75,11 +75,30 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   const totalCDI = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
   const bonusCDI = (totalCDI * participacao) / 100;
 
-  // 5. Bônus Rifa (igual para todos os participantes)
-  const participantesRifa = cotistasNaoAdmin.filter(c => c.participa_rifa).length;
-  const totalCaixinhaRifa = (rifaSorteios || []).reduce((sum, s) => sum + Number(s.valor_caixinha || 0), 0);
-  const bonusRifa = cotista.participa_rifa && participantesRifa > 0 
-    ? totalCaixinhaRifa / participantesRifa 
+  // 5. Bônus Rifa (proporcional ao valor de rifa pago - só ativos)
+  // Só recebe quem está ATIVO e participa_rifa = true
+  const todasMensalidades = Object.values(mensalidades || {}).flat();
+  
+  // Cotistas ativos que participam da rifa
+  const cotistasAtivosRifa = cotistasNaoAdmin.filter(c => c.status === 'ativo' && c.participa_rifa);
+  const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
+  
+  // Total arrecadado (para calcular sobra)
+  const totalRifaArrecadado = todasMensalidades
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  // Total pago apenas por cotistas ATIVOS (para distribuição)
+  const totalRifaAtivos = todasMensalidades
+    .filter(m => (m.status === 'pago' || m.status === 'parcial') && idsCotistasAtivosRifa.includes(m.cotista_id))
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
+  const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
+  
+  // Só calcula bônus se cotista está ativo
+  const bonusRifa = (cotista.status === 'ativo' && totalRifaAtivos > 0)
+    ? (totalRifaPaga / totalRifaAtivos) * sobraCaixinhaRifa
     : 0;
 
   // 6. Prêmios de Rifa Ganhos

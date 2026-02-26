@@ -12,7 +12,7 @@ import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
-  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios, cotistas, juros_atraso } = useAppStore();
+  const { getTotalCotas, getInvestidoByCotista, getLimiteEmprestimo, emprestimos, rifas, cdi, enviarComprovante, comprovantes, configuracoes, getNumerosRifaByCotista, rifaSorteios, cotistas, juros_atraso, mensalidades } = useAppStore();
   const { setShowPixModal, setShowChangePasswordModal } = useUIStore();
   
   const [minhasMensalidades, setMinhasMensalidades] = useState([]);
@@ -66,12 +66,37 @@ const UserArea = () => {
   const limite = solicitacao.modalidade === 'caixinha' ? limiteCaixinha : limiteNormal;
   const participacao = totalCotas > 0 ? ((cotista?.cotas || 0) / totalCotas) * 100 : 0;
   
-  // Bônus Rifa: (valor_caixinha dos sorteios) / participantes da rifa
-  // Apenas para quem participa da rifa
-  const totalCaixinhaRifa = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_caixinha || 0), 0);
-  const participantesRifa = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin).length;
-  const bonusRifas = cotista?.participa_rifa && participantesRifa > 0 
-    ? totalCaixinhaRifa / participantesRifa 
+  // Bônus Rifa: proporcional ao valor de rifa pago pelo cotista
+  // Só recebe quem está ATIVO e participa_rifa = true
+  // Fórmula: (meu_valor_rifa / total_rifa_ativos) × sobra_caixinha
+  const todasMensalidades = Object.values(mensalidades || {}).flat();
+  
+  // Cotistas ativos que participam da rifa
+  const cotistasAtivosRifa = (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo' && c.participa_rifa);
+  const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
+  
+  // Total arrecadado (para calcular sobra)
+  const totalRifaArrecadado = todasMensalidades
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  // Total pago apenas por cotistas ATIVOS (para distribuição)
+  const totalRifaAtivos = todasMensalidades
+    .filter(m => (m.status === 'pago' || m.status === 'parcial') && idsCotistasAtivosRifa.includes(m.cotista_id))
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  // Meu valor pago (só conta se estou ativo)
+  const meuValorRifaPago = idsCotistasAtivosRifa.includes(cotista?.id)
+    ? todasMensalidades
+        .filter(m => m.cotista_id === cotista?.id && (m.status === 'pago' || m.status === 'parcial'))
+        .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0)
+    : 0;
+  
+  const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
+  const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
+  
+  const bonusRifas = totalRifaAtivos > 0 
+    ? (meuValorRifaPago / totalRifaAtivos) * sobraCaixinhaRifa
     : 0;
   
   // Bônus CDI: proporcional às cotas
