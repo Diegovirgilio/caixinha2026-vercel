@@ -61,12 +61,66 @@ const Comprovantes = () => {
     rejeitados: comprovantes.filter(c => c.status === 'rejeitado').length
   };
 
+  // Helper para obter detalhes do empréstimo
+  const getEmprestimoInfo = (comprovante) => {
+    if (comprovante.tipo !== 'emprestimo') return null;
+    
+    const emp = emprestimos.find(e => e.id === comprovante.referencia_id);
+    if (!emp) return null;
+    
+    // Extrair tipo de pagamento da observação
+    const obs = comprovante.observacao || '';
+    let tipoPagamento = 'Não identificado';
+    if (obs.includes('Quitação')) tipoPagamento = 'Quitação Total';
+    else if (obs.includes('Só Juros')) tipoPagamento = 'Só Juros';
+    else if (obs.includes('Parcial')) tipoPagamento = 'Juros + Parcial';
+    
+    // Calcular dias de atraso
+    let diasAtraso = 0;
+    let jurosAtraso = 0;
+    const principalRestante = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+    
+    if (emp.data_vencimento) {
+      const hoje = new Date();
+      const vencimento = new Date(emp.data_vencimento);
+      diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+      jurosAtraso = principalRestante * (diasAtraso * 0.01); // 1% por dia
+    }
+    
+    return {
+      principal: emp.valor_emprestimo,
+      principalRestante,
+      modalidade: emp.modalidade || 'normal',
+      tipoPagamento,
+      vencimento: emp.data_vencimento,
+      status: emp.status,
+      diasAtraso,
+      jurosAtraso
+    };
+  };
+
   const openModal = (comprovante) => {
     setSelectedComprovante(comprovante);
     setValorAprovado(String(comprovante.valor_informado));
-    setJurosAtraso('');
     setMotivoRejeicao('');
     setError('');
+    
+    // Calcular juros de atraso automaticamente para empréstimos
+    let jurosAtrasoCalculado = 0;
+    if (comprovante.tipo === 'emprestimo') {
+      const emp = emprestimos.find(e => e.id === comprovante.referencia_id);
+      if (emp && emp.data_vencimento && emp.status === 'ativo') {
+        const hoje = new Date();
+        const vencimento = new Date(emp.data_vencimento);
+        const diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+        if (diasAtraso > 0) {
+          const principalRestante = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+          jurosAtrasoCalculado = principalRestante * (diasAtraso * 0.01); // 1% por dia
+        }
+      }
+    }
+    setJurosAtraso(jurosAtrasoCalculado > 0 ? String(jurosAtrasoCalculado.toFixed(2)) : '');
+    
     setShowModal(true);
   };
 
@@ -447,7 +501,9 @@ const Comprovantes = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {comprovantesFiltrados.map((c) => (
+              {comprovantesFiltrados.map((c) => {
+                const empInfo = getEmprestimoInfo(c);
+                return (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -461,10 +517,27 @@ const Comprovantes = () => {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center">
-                    {getTipoBadge(c.tipo)}
+                    <div className="flex flex-col items-center gap-1">
+                      {getTipoBadge(c.tipo)}
+                      {empInfo && (
+                        <>
+                          <span className={`text-xs px-2 py-0.5 rounded ${empInfo.modalidade === 'caixinha' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {empInfo.modalidade === 'caixinha' ? '💰 Caixinha' : 'Normal'}
+                          </span>
+                          <span className="text-xs text-orange-600 font-medium">{empInfo.tipoPagamento}</span>
+                        </>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-6 py-4 text-center font-medium">
-                    {formatCurrency(c.valor_informado)}
+                  <td className="px-6 py-4 text-center">
+                    <div className="flex flex-col items-center">
+                      <span className="font-medium">{formatCurrency(c.valor_informado)}</span>
+                      {empInfo && (
+                        <span className="text-xs text-gray-500">
+                          Principal: {formatCurrency(empInfo.principalRestante)}
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 text-center text-sm text-gray-500">
                     {formatDate(c.created_at)}
@@ -514,7 +587,8 @@ const Comprovantes = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>
@@ -573,6 +647,137 @@ const Comprovantes = () => {
                 </div>
               </div>
 
+              {/* Detalhes do Empréstimo */}
+              {selectedComprovante.tipo === 'emprestimo' && (() => {
+                const empInfo = getEmprestimoInfo(selectedComprovante);
+                if (!empInfo) return <div className="bg-red-50 p-3 rounded-lg text-red-600 text-sm">Empréstimo não encontrado</div>;
+                
+                const taxaJuros = empInfo.tipoPagamento === 'Quitação Total' ? 20 : 30;
+                const jurosEsperado = empInfo.principalRestante * (taxaJuros / 100);
+                const valorQuitacao = empInfo.principalRestante + jurosEsperado;
+                
+                return (
+                  <div className={`p-4 rounded-lg border-2 ${empInfo.diasAtraso > 0 ? 'bg-red-50 border-red-400' : empInfo.modalidade === 'caixinha' ? 'bg-blue-50 border-blue-300' : 'bg-orange-50 border-orange-300'}`}>
+                    <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      📋 Detalhes do Empréstimo
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${empInfo.modalidade === 'caixinha' ? 'bg-blue-200 text-blue-800' : 'bg-orange-200 text-orange-800'}`}>
+                        {empInfo.modalidade === 'caixinha' ? '💰 Caixinha' : 'Normal'}
+                      </span>
+                      {empInfo.diasAtraso > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-xs bg-red-500 text-white">
+                          ⚠️ {empInfo.diasAtraso} dia(s) em atraso
+                        </span>
+                      )}
+                    </h4>
+                    
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Principal Original:</span>
+                        <span className="font-medium">{formatCurrency(empInfo.principal)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Principal Restante:</span>
+                        <span className="font-bold text-red-600">{formatCurrency(empInfo.principalRestante)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Tipo de Pagamento:</span>
+                        <span className="font-medium text-purple-600">{empInfo.tipoPagamento}</span>
+                      </div>
+                      {empInfo.vencimento && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Vencimento:</span>
+                          <span className={empInfo.diasAtraso > 0 ? 'text-red-600 font-medium' : ''}>
+                            {new Date(empInfo.vencimento).toLocaleDateString('pt-BR')}
+                          </span>
+                        </div>
+                      )}
+                      
+                      {/* Alerta de Juros por Atraso */}
+                      {empInfo.diasAtraso > 0 && (
+                        <div className="bg-red-100 border border-red-300 rounded p-2 mt-2">
+                          <p className="text-red-800 font-medium text-sm">⚠️ Juros por Atraso (1% ao dia)</p>
+                          <p className="text-red-700 text-sm mt-1">
+                            {formatCurrency(empInfo.principalRestante)} × {empInfo.diasAtraso} dias × 1% = <strong>{formatCurrency(empInfo.jurosAtraso)}</strong>
+                          </p>
+                        </div>
+                      )}
+                      
+                      <div className="border-t pt-2 mt-2 space-y-1">
+                        <p className="text-gray-500 text-xs font-medium">Valores esperados:</p>
+                        {empInfo.tipoPagamento === 'Só Juros' && (
+                          <>
+                            <div className="flex justify-between text-orange-700">
+                              <span>Só Juros ({taxaJuros}%):</span>
+                              <span className="font-bold">{formatCurrency(jurosEsperado)}</span>
+                            </div>
+                            {empInfo.diasAtraso > 0 && (
+                              <>
+                                <div className="flex justify-between text-red-600">
+                                  <span>+ Juros Atraso:</span>
+                                  <span className="font-bold">{formatCurrency(empInfo.jurosAtraso)}</span>
+                                </div>
+                                <div className="flex justify-between text-red-800 font-bold border-t pt-1">
+                                  <span>TOTAL:</span>
+                                  <span>{formatCurrency(jurosEsperado + empInfo.jurosAtraso)}</span>
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                        {empInfo.tipoPagamento === 'Quitação Total' && (
+                          <>
+                            <div className="flex justify-between text-green-700">
+                              <span>Quitação ({taxaJuros}%):</span>
+                              <span className="font-bold">{formatCurrency(valorQuitacao)}</span>
+                            </div>
+                            {empInfo.diasAtraso > 0 && (
+                              <>
+                                <div className="flex justify-between text-red-600">
+                                  <span>+ Juros Atraso:</span>
+                                  <span className="font-bold">{formatCurrency(empInfo.jurosAtraso)}</span>
+                                </div>
+                                <div className="flex justify-between text-red-800 font-bold border-t pt-1">
+                                  <span>TOTAL:</span>
+                                  <span>{formatCurrency(valorQuitacao + empInfo.jurosAtraso)}</span>
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                        {empInfo.tipoPagamento === 'Juros + Parcial' && (
+                          <>
+                            <div className="flex justify-between text-blue-700">
+                              <span>Mínimo (só juros):</span>
+                              <span className="font-bold">{formatCurrency(jurosEsperado)}</span>
+                            </div>
+                            {empInfo.diasAtraso > 0 && (
+                              <>
+                                <div className="flex justify-between text-red-600">
+                                  <span>+ Juros Atraso:</span>
+                                  <span className="font-bold">{formatCurrency(empInfo.jurosAtraso)}</span>
+                                </div>
+                                <div className="flex justify-between text-red-800 font-bold border-t pt-1">
+                                  <span>MÍNIMO TOTAL:</span>
+                                  <span>{formatCurrency(jurosEsperado + empInfo.jurosAtraso)}</span>
+                                </div>
+                              </>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      
+                      <div className="bg-white/50 p-2 rounded mt-2 text-xs">
+                        {empInfo.modalidade === 'caixinha' ? (
+                          <p className="text-blue-700">💰 <strong>Caixinha:</strong> 100% dos juros vai proporcional para todos</p>
+                        ) : (
+                          <p className="text-orange-700">📊 <strong>Normal:</strong> 60% juros p/ tomador + 40% proporcional</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Ver Comprovante */}
               <div className="border rounded-lg p-4">
                 <p className="text-sm text-gray-600 mb-2">Comprovante enviado:</p>
@@ -612,40 +817,72 @@ const Comprovantes = () => {
               </div>
 
               {/* Juros por Atraso */}
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
-                <label className="block text-sm font-medium text-orange-700 mb-1">
-                  Juros por Atraso (R$)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={jurosAtraso}
-                  onChange={(e) => setJurosAtraso(e.target.value)}
-                  className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500"
-                  placeholder="0,00"
-                />
-                <p className="text-xs text-orange-600 mt-2">
-                  Se houver juros por atraso, informe o valor. Este valor vai para a caixinha.
-                </p>
+              {(() => {
+                // Calcular dias de atraso para exibição
+                let diasAtraso = 0;
+                let principalRestante = 0;
+                if (selectedComprovante.tipo === 'emprestimo') {
+                  const emp = emprestimos.find(e => e.id === selectedComprovante.referencia_id);
+                  if (emp && emp.data_vencimento && emp.status === 'ativo') {
+                    const hoje = new Date();
+                    const vencimento = new Date(emp.data_vencimento);
+                    diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+                    principalRestante = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+                  }
+                }
                 
-                {/* Resumo do cálculo */}
-                {parseFloat(jurosAtraso) > 0 && parseFloat(valorAprovado) > 0 && (
-                  <div className="mt-3 pt-3 border-t border-orange-200 space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Valor depositado:</span>
-                      <span className="font-medium">{formatCurrency(parseFloat(valorAprovado))}</span>
-                    </div>
-                    <div className="flex justify-between text-orange-600">
-                      <span>Juros por atraso:</span>
-                      <span className="font-medium">- {formatCurrency(parseFloat(jurosAtraso))}</span>
-                    </div>
-                    <div className="flex justify-between font-bold text-green-700 pt-1 border-t border-orange-200">
-                      <span>Valor p/ cotista:</span>
-                      <span>{formatCurrency(parseFloat(valorAprovado) - parseFloat(jurosAtraso))}</span>
-                    </div>
+                return (
+                  <div className={`border rounded-lg p-4 ${diasAtraso > 0 ? 'bg-red-50 border-red-300' : 'bg-orange-50 border-orange-200'}`}>
+                    <label className={`block text-sm font-medium mb-1 ${diasAtraso > 0 ? 'text-red-700' : 'text-orange-700'}`}>
+                      Juros por Atraso (R$)
+                      {diasAtraso > 0 && (
+                        <span className="ml-2 px-2 py-0.5 bg-red-200 text-red-800 rounded-full text-xs">
+                          ⚠️ {diasAtraso} dia(s) em atraso
+                        </span>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={jurosAtraso}
+                      onChange={(e) => setJurosAtraso(e.target.value)}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 ${diasAtraso > 0 ? 'border-red-300 focus:ring-red-500' : 'border-orange-300 focus:ring-orange-500'}`}
+                      placeholder="0,00"
+                    />
+                    
+                    {diasAtraso > 0 && (
+                      <div className="mt-2 p-2 bg-red-100 rounded text-xs text-red-700">
+                        <p className="font-medium">Cálculo automático (1% por dia):</p>
+                        <p>{formatCurrency(principalRestante)} × {diasAtraso} dias × 1% = <strong>{formatCurrency(principalRestante * diasAtraso * 0.01)}</strong></p>
+                      </div>
+                    )}
+                    
+                    <p className={`text-xs mt-2 ${diasAtraso > 0 ? 'text-red-600' : 'text-orange-600'}`}>
+                      {diasAtraso > 0 
+                        ? 'Valor preenchido automaticamente. Você pode ajustar se necessário.'
+                        : 'Se houver juros por atraso, informe o valor. Este valor vai para a caixinha (proporcional).'}
+                    </p>
+                    
+                    {/* Resumo do cálculo */}
+                    {parseFloat(jurosAtraso) > 0 && parseFloat(valorAprovado) > 0 && (
+                      <div className="mt-3 pt-3 border-t border-orange-200 space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Valor depositado:</span>
+                          <span className="font-medium">{formatCurrency(parseFloat(valorAprovado))}</span>
+                        </div>
+                        <div className="flex justify-between text-red-600">
+                          <span>Juros por atraso:</span>
+                          <span className="font-medium">- {formatCurrency(parseFloat(jurosAtraso))}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-green-700 pt-1 border-t border-orange-200">
+                          <span>Valor p/ cotista:</span>
+                          <span>{formatCurrency(parseFloat(valorAprovado) - parseFloat(jurosAtraso))}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Motivo de Rejeição */}
               <div>

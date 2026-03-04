@@ -199,6 +199,7 @@ export const useAppStore = create((set, get) => ({
   comprovantes: [],
   comprovantes_pendentes: 0,
   juros_atraso: [],
+  juros_emprestimo: [],
   configuracoes: {},
   config: { ...CONFIG },
   isLoading: false,
@@ -401,33 +402,104 @@ export const useAppStore = create((set, get) => ({
           .single();
         
         if (emprestimo) {
-          const valorPagoAtual = Number(emprestimo.valor_pago || 0);
-          const valorTotalEmprestimo = Number(emprestimo.valor_total || 0);
-          const novoValorPago = valorPagoAtual + valorParaCotista;
-          const status = novoValorPago >= valorTotalEmprestimo ? 'pago' : 'ativo';
+          const modalidade = emprestimo.modalidade || 'normal';
+          const principalAtual = Number(emprestimo.principal_restante || emprestimo.valor_emprestimo || 0);
+          
+          // Extrair tipo de pagamento da observação
+          // Formato: "Tipo: Quitação Total (20%)" ou "Tipo: Só Juros (30%)" ou "Tipo: Juros + Parcial (30%)"
+          const observacao = comprovante.observacao || '';
+          let tipoPagamento = 'quitacao';
+          let taxaJuros = 20;
+          
+          if (observacao.includes('Só Juros')) {
+            tipoPagamento = 'soJuros';
+            taxaJuros = 30;
+          } else if (observacao.includes('Parcial')) {
+            tipoPagamento = 'parcial';
+            taxaJuros = 30;
+          } else if (observacao.includes('Quitação')) {
+            tipoPagamento = 'quitacao';
+            taxaJuros = 20;
+          }
+          
+          // Calcular juros e principal abatido
+          let valorJuros = 0;
+          let principalAbatido = 0;
+          let novoPrincipal = principalAtual;
+          let novoStatus = 'ativo';
+          
+          if (tipoPagamento === 'soJuros') {
+            // Só juros: todo valor vai para juros, principal continua
+            valorJuros = valorParaCotista;
+            principalAbatido = 0;
+            novoPrincipal = principalAtual;
+            novoStatus = 'ativo';
+            
+          } else if (tipoPagamento === 'parcial') {
+            // Parcial: juros + parte do principal
+            const jurosCalculado = principalAtual * (taxaJuros / 100);
+            valorJuros = Math.min(jurosCalculado, valorParaCotista);
+            principalAbatido = Math.max(0, valorParaCotista - valorJuros);
+            novoPrincipal = Math.max(0, principalAtual - principalAbatido);
+            novoStatus = novoPrincipal <= 0 ? 'pago' : 'ativo';
+            
+          } else {
+            // Quitação: juros + todo principal
+            valorJuros = principalAtual * (taxaJuros / 100);
+            principalAbatido = principalAtual;
+            novoPrincipal = 0;
+            novoStatus = 'pago';
+          }
           
           console.log('Aprovando empréstimo:', {
-            valorPagoAtual,
+            tipoPagamento,
+            modalidade,
+            principalAtual,
             valorParaCotista,
-            novoValorPago,
-            valorTotalEmprestimo,
-            status
+            valorJuros,
+            principalAbatido,
+            novoPrincipal,
+            novoStatus,
+            taxaJuros
           });
           
-          // Se não quitou, mover vencimento para próximo mês
+          // Registrar juros na tabela juros_emprestimo
+          if (valorJuros > 0) {
+            const mesRef = new Date().toISOString().slice(0, 7);
+            await supabase
+              .from('juros_emprestimo')
+              .insert({
+                emprestimo_id: emprestimo.id,
+                cotista_id: emprestimo.cotista_id,
+                comprovante_id: comprovanteId,
+                modalidade,
+                tipo_pagamento: tipoPagamento,
+                valor_juros: valorJuros,
+                valor_principal_abatido: principalAbatido,
+                taxa_juros: taxaJuros,
+                mes_referencia: mesRef,
+                registrado_por: adminId
+              });
+          }
+          
+          // Atualizar empréstimo
           let novoVencimento = emprestimo.data_vencimento;
-          if (status === 'ativo') {
+          if (novoStatus === 'ativo') {
             const vencimentoAtual = emprestimo.data_vencimento ? new Date(emprestimo.data_vencimento) : new Date();
             novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
           }
+          
+          // valor_pago acumula tudo que foi pago (juros + principal)
+          const novoValorPago = Number(emprestimo.valor_pago || 0) + valorParaCotista;
           
           const { error: empError } = await supabase
             .from('emprestimos')
             .update({
               valor_pago: novoValorPago,
-              status,
-              data_quitacao: status === 'pago' ? new Date().toISOString() : null,
-              data_vencimento: status === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
+              principal_restante: novoPrincipal,
+              status: novoStatus,
+              data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
+              data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
             })
             .eq('id', comprovante.referencia_id);
           
@@ -439,6 +511,7 @@ export const useAppStore = create((set, get) => ({
 
       await get().loadComprovantes();
       await get().loadJurosAtraso();
+      await get().loadJurosEmprestimo();
       await get().loadMensalidades();
       await get().loadEmprestimos();
       return true;
@@ -742,6 +815,40 @@ export const useAppStore = create((set, get) => ({
     return (juros_atraso || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
   },
 
+  // ===== JUROS DE EMPRÉSTIMO =====
+  loadJurosEmprestimo: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('juros_emprestimo')
+        .select(`*, cotista:cotistas!juros_emprestimo_cotista_id_fkey(id, nome), emprestimo:emprestimos(id, cotista_id, valor_emprestimo, modalidade)`)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      set({ juros_emprestimo: data || [] });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar juros de empréstimo:', error);
+      return [];
+    }
+  },
+
+  registrarJurosEmprestimo: async (dados) => {
+    try {
+      const { data, error } = await supabase
+        .from('juros_emprestimo')
+        .insert(dados)
+        .select()
+        .single();
+      
+      if (error) throw error;
+      await get().loadJurosEmprestimo();
+      return data;
+    } catch (error) {
+      console.error('Erro ao registrar juros de empréstimo:', error);
+      throw error;
+    }
+  },
+
   // ===== INICIALIZAÇÃO =====
   initializeData: () => {
     // Não faz nada - dados vêm do Supabase
@@ -761,7 +868,8 @@ export const useAppStore = create((set, get) => ({
         get().loadComprovantes(),
         get().loadRifaNumeros(),
         get().loadRifaSorteios(),
-        get().loadJurosAtraso()
+        get().loadJurosAtraso(),
+        get().loadJurosEmprestimo()
       ]);
       set({ isOnline: true });
     } catch (error) {

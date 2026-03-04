@@ -13,6 +13,7 @@ const ExtratoCotista = ({ cotista, onClose }) => {
     rifaSorteios, 
     cdi, 
     juros_atraso,
+    juros_emprestimo,
     cotistas,
     configuracoes
   } = useAppStore();
@@ -37,8 +38,8 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   // 1b. Total Rifa paga pelo cotista
   const totalRifaPaga = mensalidadesCotista.reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
 
-  // 2. Bônus de Juros de Empréstimos - SEPARADOS
-  const emprestimosQuitados = (emprestimos || []).filter(e => e.status === 'pago');
+  // 2. Bônus de Juros de Empréstimos - SEPARADOS (usando tabela juros_emprestimo)
+  const jurosEmprestimoList = juros_emprestimo || [];
   
   // Juros 60% - só quem pegou empréstimo normal
   let juros60 = 0;
@@ -47,20 +48,20 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   // Juros Caixinha - 100% proporcional de empréstimos caixinha
   let jurosCaixinha = 0;
   
-  emprestimosQuitados.forEach(emp => {
-    const jurosTotal = Number(emp.valor_juros || 0);
-    const modalidade = emp.modalidade || 'normal';
+  jurosEmprestimoList.forEach(j => {
+    const valorJuros = Number(j.valor_juros || 0);
+    const modalidade = j.modalidade || 'normal';
     
     if (modalidade === 'caixinha') {
       // 100% proporcional para todos
-      jurosCaixinha += (jurosTotal * participacao) / 100;
+      jurosCaixinha += (valorJuros * participacao) / 100;
     } else {
       // 60% para quem pegou
-      if (emp.cotista_id === cotista.id) {
-        juros60 += jurosTotal * 0.6;
+      if (j.cotista_id === cotista.id) {
+        juros60 += valorJuros * 0.6;
       }
       // 40% proporcional para todos
-      juros40 += (jurosTotal * 0.4 * participacao) / 100;
+      juros40 += (valorJuros * 0.4 * participacao) / 100;
     }
   });
   
@@ -119,30 +120,31 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   // ===== HISTÓRICO DE RENDIMENTOS =====
   const historicoRendimentos = [];
 
-  // Juros de empréstimos quitados
-  emprestimosQuitados.forEach(emp => {
-    const jurosTotal = Number(emp.valor_juros || 0);
-    const modalidade = emp.modalidade || 'normal';
+  // Juros de empréstimos (da tabela juros_emprestimo)
+  jurosEmprestimoList.forEach(j => {
+    const valorJuros = Number(j.valor_juros || 0);
+    const modalidade = j.modalidade || 'normal';
     let valorRecebido = 0;
     
     if (modalidade === 'caixinha') {
       // 100% proporcional para todos
-      valorRecebido = (jurosTotal * participacao) / 100;
+      valorRecebido = (valorJuros * participacao) / 100;
     } else {
       // Normal: 60% para quem pegou + 40% proporcional
-      if (emp.cotista_id === cotista.id) {
-        valorRecebido += jurosTotal * 0.6;
+      if (j.cotista_id === cotista.id) {
+        valorRecebido += valorJuros * 0.6;
       }
-      valorRecebido += (jurosTotal * 0.4 * participacao) / 100;
+      valorRecebido += (valorJuros * 0.4 * participacao) / 100;
     }
     
     if (valorRecebido > 0) {
-      const cotistaEmp = cotistas.find(c => c.id === emp.cotista_id);
+      const cotistaEmp = cotistas.find(c => c.id === j.cotista_id);
+      const tipoPagLabel = j.tipo_pagamento === 'soJuros' ? 'Só Juros' : j.tipo_pagamento === 'parcial' ? 'Parcial' : 'Quitação';
       historicoRendimentos.push({
         tipo: 'juros_emprestimo',
-        descricao: `Juros empréstimo ${modalidade === 'caixinha' ? '(Caixinha)' : ''} de ${cotistaEmp?.nome || 'Cotista'}`,
+        descricao: `${tipoPagLabel} ${modalidade === 'caixinha' ? '(Caixinha)' : ''} - ${cotistaEmp?.nome || 'Cotista'}`,
         valor: valorRecebido,
-        data: emp.data_quitacao || emp.updated_at
+        data: j.created_at
       });
     }
   });

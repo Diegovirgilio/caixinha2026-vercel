@@ -34,6 +34,10 @@ const Cotistas = () => {
   const [success, setSuccess] = useState('');
   const [loadingRifa, setLoadingRifa] = useState(null); // ID do cotista com loading
   const [showPassword, setShowPassword] = useState(false);
+  const [showResetSenhaModal, setShowResetSenhaModal] = useState(false);
+  const [resetSenhaCotista, setResetSenhaCotista] = useState(null);
+  const [novaSenha, setNovaSenha] = useState('');
+  const [loadingReset, setLoadingReset] = useState(false);
 
   useEffect(() => {
     loadCotistas();
@@ -258,6 +262,91 @@ const Cotistas = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Função para resetar senha de um cotista
+  const handleResetSenha = async () => {
+    if (!novaSenha || novaSenha.length < 4) {
+      setError('A senha deve ter no mínimo 4 caracteres');
+      return;
+    }
+    
+    if (!resetSenhaCotista) return;
+    
+    setLoadingReset(true);
+    setError('');
+    
+    try {
+      // 1. Gerar email para auth
+      const emailParaAuth = resetSenhaCotista.email || 
+        `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`;
+      
+      // 2. Deletar usuário antigo no Auth (se existir)
+      if (resetSenhaCotista.user_id) {
+        // Não conseguimos deletar pelo cliente, mas podemos criar um novo
+        // O Supabase vai dar erro de email duplicado, então vamos usar signUp com opção de update
+      }
+      
+      // 3. Tentar criar novo usuário ou fazer login e atualizar
+      // Primeiro, tentamos fazer signUp - se já existir, vai dar erro
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: emailParaAuth,
+        password: novaSenha,
+        options: {
+          data: { cotista_id: resetSenhaCotista.id }
+        }
+      });
+      
+      if (signUpError) {
+        // Se o erro for de usuário já existente, precisamos de outra abordagem
+        if (signUpError.message?.includes('already registered') || signUpError.message?.includes('already exists')) {
+          // Fazer login com a senha antiga não vai funcionar porque não sabemos
+          // Vamos tentar uma abordagem diferente: atualizar via admin
+          
+          // Como não temos acesso admin pelo cliente, vamos mostrar instrução
+          setError('Usuário já existe. Para resetar, delete o usuário no Supabase Dashboard (Authentication > Users) e tente novamente.');
+          setLoadingReset(false);
+          return;
+        }
+        throw signUpError;
+      }
+      
+      // 4. Atualizar user_id na tabela cotistas
+      if (signUpData?.user?.id) {
+        const { error: updateError } = await supabase
+          .from('cotistas')
+          .update({ 
+            user_id: signUpData.user.id,
+            email_confirmado: true 
+          })
+          .eq('id', resetSenhaCotista.id);
+        
+        if (updateError) {
+          console.error('Erro ao atualizar user_id:', updateError);
+        }
+      }
+      
+      setSuccess(`Senha resetada com sucesso! Nova senha: ${novaSenha}`);
+      setShowResetSenhaModal(false);
+      setResetSenhaCotista(null);
+      setNovaSenha('');
+      await loadCotistas();
+      setTimeout(() => setSuccess(''), 5000);
+      
+    } catch (err) {
+      console.error('Erro ao resetar senha:', err);
+      setError(err.message || 'Erro ao resetar senha');
+    } finally {
+      setLoadingReset(false);
+    }
+  };
+
+  // Abrir modal de reset de senha
+  const openResetSenhaModal = (cotista) => {
+    setResetSenhaCotista(cotista);
+    setNovaSenha('');
+    setError('');
+    setShowResetSenhaModal(true);
   };
 
   const handleToggleStatus = async (cotista) => {
@@ -662,6 +751,14 @@ const Cotistas = () => {
                         <FileText size={18} />
                       </button>
                       <button
+                        onClick={() => openResetSenhaModal(cotista)}
+                        disabled={loading}
+                        className="p-2 text-yellow-600 hover:bg-yellow-50 rounded-lg disabled:opacity-50"
+                        title="Resetar Senha"
+                      >
+                        <Lock size={18} />
+                      </button>
+                      <button
                         onClick={() => openEditModal(cotista)}
                         disabled={loading}
                         className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-50"
@@ -752,7 +849,7 @@ const Cotistas = () => {
                 </p>
               </div>
 
-              {/* Senha - apenas para novos cotistas */}
+              {/* Senha - para novos cotistas */}
               {!editingCotista && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -891,6 +988,99 @@ const Cotistas = () => {
           cotista={showExtrato} 
           onClose={() => setShowExtrato(null)} 
         />
+      )}
+
+      {/* Modal Reset Senha */}
+      {showResetSenhaModal && resetSenhaCotista && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h3 className="text-lg font-semibold flex items-center gap-2">
+                <Lock size={20} className="text-yellow-600" />
+                Resetar Senha
+              </h3>
+              <button 
+                onClick={() => {
+                  setShowResetSenhaModal(false);
+                  setResetSenhaCotista(null);
+                  setNovaSenha('');
+                  setError('');
+                }}
+                className="p-1 hover:bg-gray-100 rounded"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
+              <div className="bg-gray-50 p-3 rounded-lg">
+                <p className="text-sm text-gray-600">Cotista:</p>
+                <p className="font-medium text-gray-800">{resetSenhaCotista.nome}</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Email: {resetSenhaCotista.email || `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Nova Senha *
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 pr-10"
+                    placeholder="Digite a nova senha"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Mínimo 4 caracteres</p>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                <p className="text-xs text-yellow-800">
+                  <strong>Atenção:</strong> Esta ação irá recriar o acesso do cotista com a nova senha. 
+                  O cotista precisará usar esta nova senha para fazer login.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 border-t bg-gray-50">
+              <button
+                onClick={() => {
+                  setShowResetSenhaModal(false);
+                  setResetSenhaCotista(null);
+                  setNovaSenha('');
+                  setError('');
+                }}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleResetSenha}
+                disabled={loadingReset || !novaSenha || novaSenha.length < 4}
+                className="flex-1 px-4 py-2 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loadingReset ? <Loader2 className="animate-spin" size={18} /> : <Lock size={18} />}
+                {loadingReset ? 'Resetando...' : 'Resetar Senha'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
