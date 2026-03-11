@@ -395,11 +395,21 @@ export const useAppStore = create((set, get) => ({
         }
       } else if (comprovante.tipo === 'emprestimo') {
         // Empréstimo: SEMPRE atualiza (múltiplos pagamentos permitidos)
-        const { data: emprestimo } = await supabase
+        console.log('=== APROVANDO EMPRÉSTIMO ===');
+        console.log('Comprovante:', comprovante);
+        console.log('referencia_id:', comprovante.referencia_id);
+        
+        const { data: emprestimo, error: fetchError } = await supabase
           .from('emprestimos')
           .select('*')
           .eq('id', comprovante.referencia_id)
           .single();
+        
+        if (fetchError) {
+          console.error('Erro ao buscar empréstimo:', fetchError);
+        }
+        
+        console.log('Empréstimo encontrado:', emprestimo);
         
         if (emprestimo) {
           const modalidade = emprestimo.modalidade || 'normal';
@@ -483,29 +493,39 @@ export const useAppStore = create((set, get) => ({
           }
           
           // Atualizar empréstimo
+          // Calcular novo vencimento: vencimento atual + 1 mês
           let novoVencimento = emprestimo.data_vencimento;
-          if (novoStatus === 'ativo') {
-            const vencimentoAtual = emprestimo.data_vencimento ? new Date(emprestimo.data_vencimento) : new Date();
+          if (novoStatus === 'ativo' && emprestimo.data_vencimento) {
+            const vencimentoAtual = new Date(emprestimo.data_vencimento);
             novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
           }
           
-          // valor_pago acumula tudo que foi pago (juros + principal)
-          const novoValorPago = Number(emprestimo.valor_pago || 0) + valorParaCotista;
+          const dadosUpdate = {
+            principal_restante: novoPrincipal,
+            status: novoStatus,
+            data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
+            data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
+          };
           
-          const { error: empError } = await supabase
+          console.log('=== ATUALIZANDO EMPRÉSTIMO ===');
+          console.log('ID:', comprovante.referencia_id);
+          console.log('Dados para update:', dadosUpdate);
+          
+          const { data: updateResult, error: empError } = await supabase
             .from('emprestimos')
-            .update({
-              valor_pago: novoValorPago,
-              principal_restante: novoPrincipal,
-              status: novoStatus,
-              data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
-              data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
-            })
-            .eq('id', comprovante.referencia_id);
+            .update(dadosUpdate)
+            .eq('id', comprovante.referencia_id)
+            .select();
+          
+          console.log('Resultado update:', updateResult);
           
           if (empError) {
             console.error('Erro ao atualizar empréstimo:', empError);
+          } else {
+            console.log('Empréstimo atualizado com sucesso!');
           }
+        } else {
+          console.error('Empréstimo não encontrado com ID:', comprovante.referencia_id);
         }
       }
 

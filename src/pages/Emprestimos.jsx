@@ -27,6 +27,15 @@ const Emprestimos = () => {
     parcelas: 1
   });
 
+  // Modal de Registrar Pagamento
+  const [showPagamentoModal, setShowPagamentoModal] = useState(false);
+  const [pagamentoEmprestimo, setPagamentoEmprestimo] = useState(null);
+  const [pagamentoForm, setPagamentoForm] = useState({
+    tipoPagamento: 'quitacao', // quitacao, soJuros, parcial
+    valorPago: '',
+    jurosAtraso: ''
+  });
+
   useEffect(() => {
     loadEmprestimos();
   }, []);
@@ -119,6 +128,203 @@ const Emprestimos = () => {
     setSelectedEmprestimo(emprestimo);
     setModalMode('detalhes');
     setShowModal(true);
+  };
+
+  // Abrir modal de registrar pagamento
+  const openPagamentoModal = (emprestimo) => {
+    setPagamentoEmprestimo(emprestimo);
+    
+    const principal = Number(emprestimo.principal_restante || emprestimo.valor_emprestimo || 0);
+    const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
+    const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+    
+    // Calcular dias de atraso
+    let diasAtraso = 0;
+    let jurosAtraso = 0;
+    if (emprestimo.data_vencimento && emprestimo.status === 'ativo') {
+      const hoje = new Date();
+      const vencimento = new Date(emprestimo.data_vencimento);
+      diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+      jurosAtraso = principal * (diasAtraso * 0.01);
+    }
+    
+    const jurosQuitacao = principal * (taxaVista / 100);
+    const jurosSoJuros = principal * (taxaParcelado / 100);
+    
+    setPagamentoForm({
+      tipoPagamento: 'quitacao',
+      valorPago: String((principal + jurosQuitacao + jurosAtraso).toFixed(2)),
+      jurosAtraso: jurosAtraso > 0 ? String(jurosAtraso.toFixed(2)) : ''
+    });
+    setError('');
+    setShowPagamentoModal(true);
+  };
+
+  // Calcular valores esperados para pagamento
+  const calcularPagamento = () => {
+    if (!pagamentoEmprestimo) return { principal: 0, taxaVista: 20, taxaParcelado: 30, jurosVista: 0, jurosParcelado: 0, diasAtraso: 0, jurosAtraso: 0 };
+    
+    const principal = Number(pagamentoEmprestimo.principal_restante || pagamentoEmprestimo.valor_emprestimo || 0);
+    const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
+    const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
+    const jurosVista = principal * (taxaVista / 100);
+    const jurosParcelado = principal * (taxaParcelado / 100);
+    
+    let diasAtraso = 0;
+    let jurosAtraso = 0;
+    if (pagamentoEmprestimo.data_vencimento && pagamentoEmprestimo.status === 'ativo') {
+      const hoje = new Date();
+      const vencimento = new Date(pagamentoEmprestimo.data_vencimento);
+      diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+      jurosAtraso = principal * (diasAtraso * 0.01);
+    }
+    
+    return { principal, taxaVista, taxaParcelado, jurosVista, jurosParcelado, diasAtraso, jurosAtraso };
+  };
+
+  // Registrar pagamento manualmente
+  const handleRegistrarPagamento = async () => {
+    if (!pagamentoEmprestimo) return;
+    
+    const valorPago = parseFloat(pagamentoForm.valorPago);
+    if (isNaN(valorPago) || valorPago <= 0) {
+      setError('Informe o valor pago');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const calc = calcularPagamento();
+      const jurosAtrasoValor = parseFloat(pagamentoForm.jurosAtraso) || 0;
+      const valorParaCotista = valorPago - jurosAtrasoValor;
+      
+      const modalidade = pagamentoEmprestimo.modalidade || 'normal';
+      const principal = calc.principal;
+      let taxaJuros = calc.taxaVista;
+      let valorJuros = 0;
+      let principalAbatido = 0;
+      let novoPrincipal = principal;
+      let novoStatus = 'ativo';
+      
+      if (pagamentoForm.tipoPagamento === 'soJuros') {
+        taxaJuros = calc.taxaParcelado;
+        valorJuros = calc.jurosParcelado;
+        principalAbatido = 0;
+        novoPrincipal = principal;
+        novoStatus = 'ativo';
+      } else if (pagamentoForm.tipoPagamento === 'parcial') {
+        taxaJuros = calc.taxaParcelado;
+        valorJuros = calc.jurosParcelado;
+        principalAbatido = Math.max(0, valorParaCotista - valorJuros);
+        novoPrincipal = Math.max(0, principal - principalAbatido);
+        novoStatus = novoPrincipal <= 0 ? 'pago' : 'ativo';
+      } else {
+        // Quitação
+        taxaJuros = calc.taxaVista;
+        valorJuros = calc.jurosVista;
+        principalAbatido = principal;
+        novoPrincipal = 0;
+        novoStatus = 'pago';
+      }
+      
+      // Registrar juros de atraso se houver
+      if (jurosAtrasoValor > 0) {
+        await supabase.from('juros_atraso').insert({
+          cotista_id: pagamentoEmprestimo.cotista_id,
+          tipo: 'emprestimo',
+          valor_juros: jurosAtrasoValor,
+          mes_referencia: new Date().toISOString().slice(0, 7),
+          registrado_por: cotista.id
+        });
+      }
+      
+      // Registrar juros do empréstimo
+      if (valorJuros > 0) {
+        await supabase.from('juros_emprestimo').insert({
+          emprestimo_id: pagamentoEmprestimo.id,
+          cotista_id: pagamentoEmprestimo.cotista_id,
+          modalidade,
+          tipo_pagamento: pagamentoForm.tipoPagamento,
+          valor_juros: valorJuros,
+          valor_principal_abatido: principalAbatido,
+          taxa_juros: taxaJuros,
+          mes_referencia: new Date().toISOString().slice(0, 7),
+          registrado_por: cotista.id
+        });
+      }
+      
+      // Calcular novo vencimento - vencimento atual + 1 mês
+      let novoVencimento = pagamentoEmprestimo.data_vencimento;
+      if (novoStatus === 'ativo' && pagamentoEmprestimo.data_vencimento) {
+        const vencimentoAtual = new Date(pagamentoEmprestimo.data_vencimento);
+        novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+      }
+      
+      // Atualizar empréstimo (sem valor_pago - coluna não existe)
+      const { error: updateError } = await supabase
+        .from('emprestimos')
+        .update({
+          principal_restante: novoPrincipal,
+          status: novoStatus,
+          data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
+          data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : pagamentoEmprestimo.data_vencimento
+        })
+        .eq('id', pagamentoEmprestimo.id);
+      
+      if (updateError) throw updateError;
+      
+      setSuccess(`Pagamento registrado! Status: ${novoStatus === 'pago' ? 'QUITADO' : 'ATIVO'}`);
+      setShowPagamentoModal(false);
+      setPagamentoEmprestimo(null);
+      await loadEmprestimos();
+      setTimeout(() => setSuccess(''), 3000);
+      
+    } catch (err) {
+      console.error('Erro ao registrar pagamento:', err);
+      setError(err.message || 'Erro ao registrar pagamento');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Reverter status do empréstimo
+  const handleReverterStatus = async (emprestimo, novoStatus) => {
+    if (!confirm(`Deseja alterar o status para "${novoStatus}"?`)) return;
+    
+    setLoading(true);
+    try {
+      const updates = { status: novoStatus };
+      
+      if (novoStatus === 'ativo') {
+        // Reverter para ativo - restaurar principal
+        updates.principal_restante = emprestimo.valor_emprestimo;
+        updates.data_quitacao = null;
+        // Definir vencimento para próximo mês
+        const novoVencimento = new Date();
+        novoVencimento.setMonth(novoVencimento.getMonth() + 1);
+        updates.data_vencimento = novoVencimento.toISOString().split('T')[0];
+      } else if (novoStatus === 'pago') {
+        updates.principal_restante = 0;
+        updates.data_quitacao = new Date().toISOString();
+      }
+      
+      const { error } = await supabase
+        .from('emprestimos')
+        .update(updates)
+        .eq('id', emprestimo.id);
+      
+      if (error) throw error;
+      
+      setSuccess(`Status alterado para ${novoStatus}`);
+      await loadEmprestimos();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleAddEmprestimo = async () => {
@@ -608,7 +814,7 @@ const Emprestimos = () => {
                     {getStatusBadge(e.status)}
                   </td>
                   <td className="px-6 py-4">
-                    <div className="flex items-center justify-center gap-1">
+                    <div className="flex items-center justify-center gap-1 flex-wrap">
                       <button
                         onClick={() => openDetails(e)}
                         className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
@@ -616,22 +822,41 @@ const Emprestimos = () => {
                       >
                         <Eye size={16} />
                       </button>
-                      {(e.status === 'pendente' || e.status === 'ativo') && (
-                        <button
-                          onClick={() => openEditModal(e)}
-                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                          title="Editar"
-                        >
-                          <Edit2 size={16} />
-                        </button>
-                      )}
                       {e.status === 'ativo' && (
                         <button
-                          onClick={() => handleQuitar(e)}
+                          onClick={() => openPagamentoModal(e)}
                           className="px-2 py-1 bg-green-600 text-white rounded text-xs hover:bg-green-700"
+                          title="Registrar Pagamento"
                         >
-                          Quitar
+                          💰 Pagar
                         </button>
+                      )}
+                      {e.status === 'pago' && (
+                        <button
+                          onClick={() => handleReverterStatus(e, 'ativo')}
+                          className="px-2 py-1 bg-yellow-500 text-white rounded text-xs hover:bg-yellow-600"
+                          title="Reverter para Ativo"
+                        >
+                          ↩️ Reverter
+                        </button>
+                      )}
+                      {e.status === 'pendente' && (
+                        <>
+                          <button
+                            onClick={() => handleAprovarEmprestimo(e)}
+                            className="p-1.5 text-green-600 hover:bg-green-50 rounded"
+                            title="Aprovar"
+                          >
+                            <Check size={16} />
+                          </button>
+                          <button
+                            onClick={() => handleRejeitarEmprestimo(e)}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                            title="Rejeitar"
+                          >
+                            <Ban size={16} />
+                          </button>
+                        </>
                       )}
                       <button
                         onClick={() => handleDelete(e)}
@@ -850,6 +1075,202 @@ const Emprestimos = () => {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Registrar Pagamento */}
+      {showPagamentoModal && pagamentoEmprestimo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white">
+              <h3 className="text-lg font-semibold">💰 Registrar Pagamento</h3>
+              <button onClick={() => setShowPagamentoModal(false)} className="p-1 hover:bg-gray-100 rounded">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
+                  {error}
+                </div>
+              )}
+
+              {/* Info do Empréstimo */}
+              <div className={`p-4 rounded-lg border-2 ${calcularPagamento().diasAtraso > 0 ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}>
+                <div className="flex justify-between items-center mb-2">
+                  <span className="font-medium text-gray-800">{pagamentoEmprestimo.cotista?.nome}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${pagamentoEmprestimo.modalidade === 'caixinha' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
+                    {pagamentoEmprestimo.modalidade === 'caixinha' ? '💰 Caixinha' : 'Normal'}
+                  </span>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Principal Restante:</span>
+                    <span className="font-bold text-red-600">{formatCurrency(calcularPagamento().principal)}</span>
+                  </div>
+                  {pagamentoEmprestimo.data_vencimento && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Vencimento:</span>
+                      <span className={calcularPagamento().diasAtraso > 0 ? 'text-red-600 font-medium' : ''}>
+                        {formatDate(pagamentoEmprestimo.data_vencimento)}
+                        {calcularPagamento().diasAtraso > 0 && ` (${calcularPagamento().diasAtraso} dias em atraso)`}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Alerta de Juros por Atraso */}
+              {calcularPagamento().diasAtraso > 0 && (
+                <div className="bg-red-100 border border-red-300 rounded-lg p-3">
+                  <p className="text-sm font-medium text-red-800">⚠️ Juros por Atraso (1% ao dia)</p>
+                  <p className="text-sm text-red-700 mt-1">
+                    {formatCurrency(calcularPagamento().principal)} × {calcularPagamento().diasAtraso} dias × 1% = <strong>{formatCurrency(calcularPagamento().jurosAtraso)}</strong>
+                  </p>
+                </div>
+              )}
+
+              {/* Tipo de Pagamento */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Tipo de Pagamento</label>
+                
+                {/* Quitação */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoForm.tipoPagamento === 'quitacao' ? 'border-green-500 bg-green-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="quitacao"
+                    checked={pagamentoForm.tipoPagamento === 'quitacao'}
+                    onChange={(e) => {
+                      const calc = calcularPagamento();
+                      const total = calc.principal + calc.jurosVista + calc.jurosAtraso;
+                      setPagamentoForm({ ...pagamentoForm, tipoPagamento: e.target.value, valorPago: total.toFixed(2) });
+                    }}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Quitação Total ({calcularPagamento().taxaVista}%)</p>
+                    <p className="text-sm text-green-600 font-bold">
+                      {formatCurrency(calcularPagamento().principal + calcularPagamento().jurosVista + calcularPagamento().jurosAtraso)}
+                    </p>
+                  </div>
+                </label>
+
+                {/* Só Juros */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoForm.tipoPagamento === 'soJuros' ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="soJuros"
+                    checked={pagamentoForm.tipoPagamento === 'soJuros'}
+                    onChange={(e) => {
+                      const calc = calcularPagamento();
+                      const total = calc.jurosParcelado + calc.jurosAtraso;
+                      setPagamentoForm({ ...pagamentoForm, tipoPagamento: e.target.value, valorPago: total.toFixed(2) });
+                    }}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Só Juros ({calcularPagamento().taxaParcelado}%)</p>
+                    <p className="text-sm text-orange-600 font-bold">
+                      {formatCurrency(calcularPagamento().jurosParcelado + calcularPagamento().jurosAtraso)}
+                    </p>
+                    <p className="text-xs text-gray-500">Principal continua: {formatCurrency(calcularPagamento().principal)}</p>
+                  </div>
+                </label>
+
+                {/* Parcial */}
+                <label className={`flex items-center p-3 border rounded-lg cursor-pointer ${pagamentoForm.tipoPagamento === 'parcial' ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                  <input
+                    type="radio"
+                    name="tipoPagamento"
+                    value="parcial"
+                    checked={pagamentoForm.tipoPagamento === 'parcial'}
+                    onChange={(e) => {
+                      const calc = calcularPagamento();
+                      const minimo = calc.jurosParcelado + calc.jurosAtraso;
+                      setPagamentoForm({ ...pagamentoForm, tipoPagamento: e.target.value, valorPago: minimo.toFixed(2) });
+                    }}
+                    className="mr-3"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium text-gray-800">Juros + Parcial ({calcularPagamento().taxaParcelado}%)</p>
+                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(calcularPagamento().jurosParcelado + calcularPagamento().jurosAtraso)}</p>
+                  </div>
+                </label>
+              </div>
+
+              {/* Valor Pago */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Valor Pago (R$)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={pagamentoForm.valorPago}
+                  onChange={(e) => setPagamentoForm({ ...pagamentoForm, valorPago: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Juros por Atraso */}
+              {calcularPagamento().diasAtraso > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Juros por Atraso (R$)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={pagamentoForm.jurosAtraso}
+                    onChange={(e) => setPagamentoForm({ ...pagamentoForm, jurosAtraso: e.target.value })}
+                    className="w-full px-3 py-2 border border-orange-300 rounded-lg focus:ring-2 focus:ring-orange-500 bg-orange-50"
+                  />
+                  <p className="text-xs text-orange-600 mt-1">Calculado automaticamente. Ajuste se necessário.</p>
+                </div>
+              )}
+
+              {/* Resumo */}
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <p className="text-sm font-medium text-blue-800 mb-2">Resumo da operação:</p>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-blue-600">Valor pago:</span>
+                    <span className="font-medium">{formatCurrency(parseFloat(pagamentoForm.valorPago) || 0)}</span>
+                  </div>
+                  {parseFloat(pagamentoForm.jurosAtraso) > 0 && (
+                    <div className="flex justify-between text-orange-600">
+                      <span>Juros atraso:</span>
+                      <span>- {formatCurrency(parseFloat(pagamentoForm.jurosAtraso))}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-blue-800 pt-1 border-t border-blue-200">
+                    <span>Resultado:</span>
+                    <span>
+                      {pagamentoForm.tipoPagamento === 'quitacao' ? 'QUITADO' : 
+                       pagamentoForm.tipoPagamento === 'soJuros' ? 'Principal continua' : 
+                       'Abate parcial'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowPagamentoModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRegistrarPagamento}
+                disabled={loading}
+                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                {loading ? 'Registrando...' : 'Registrar Pagamento'}
+              </button>
             </div>
           </div>
         </div>
