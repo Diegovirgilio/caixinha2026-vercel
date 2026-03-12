@@ -140,7 +140,7 @@ export const mensalidadesApi = {
     for (let i = 1; i <= 11; i++) {
       meses.push({
         cotista_id: cotistaId,
-        mes_referencia: `${String(i).padStart(2, '0')}/2026`,
+        mes_referencia: `2026-${String(i).padStart(2, '0')}`,
         valor_devido: cotas * valorPorCota,
         valor_pago: 0,
         status: 'pendente'

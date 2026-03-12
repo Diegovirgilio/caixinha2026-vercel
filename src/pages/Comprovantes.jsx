@@ -10,7 +10,7 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 
 const Comprovantes = () => {
   const { cotista } = useAuthStore();
-  const { comprovantes, loadComprovantes, aprovarComprovante, rejeitarComprovante, cotistas, mensalidades, emprestimos, loadCotistas, loadMensalidades, loadEmprestimos } = useAppStore();
+  const { comprovantes, loadComprovantes, aprovarComprovante, rejeitarComprovante, cotistas, mensalidades, emprestimos, loadCotistas, loadMensalidades, loadEmprestimos, configuracoes } = useAppStore();
   const [filtroStatus, setFiltroStatus] = useState('pendente');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroMes, setFiltroMes] = useState('todos');
@@ -99,14 +99,46 @@ const Comprovantes = () => {
     };
   };
 
+  // Helper para obter detalhes da mensalidade com atraso
+  const getMensalidadeInfo = (comprovante) => {
+    if (comprovante.tipo !== 'mensalidade') return null;
+    
+    const mesRef = comprovante.mes_referencia;
+    if (!mesRef) return null;
+    
+    // Formato: YYYY-MM (ex: 2026-02)
+    const [ano, mes] = mesRef.split('-').map(Number);
+    if (!ano || !mes) return null;
+    
+    const ultimoDiaMes = new Date(ano, mes, 0); // último dia do mês
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    
+    let diasAtraso = 0;
+    let multaAtraso = 0;
+    let jurosAtraso = 0;
+    
+    if (hoje > ultimoDiaMes) {
+      diasAtraso = Math.floor((hoje - ultimoDiaMes) / (1000 * 60 * 60 * 24));
+      // Buscar valor da mensalidade
+      const cotistaData = cotistas.find(c => c.id === comprovante.cotista_id);
+      const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_cota || 100));
+      multaAtraso = valorBase * 0.20; // 20% multa fixa
+      jurosAtraso = valorBase * diasAtraso * 0.01; // 1% por dia
+    }
+    
+    return { diasAtraso, multaAtraso, jurosAtraso, vencimento: ultimoDiaMes };
+  };
+
   const openModal = (comprovante) => {
     setSelectedComprovante(comprovante);
     setValorAprovado(String(comprovante.valor_informado));
     setMotivoRejeicao('');
     setError('');
     
-    // Calcular juros de atraso automaticamente para empréstimos
+    // Calcular juros de atraso automaticamente
     let jurosAtrasoCalculado = 0;
+    
     if (comprovante.tipo === 'emprestimo') {
       const emp = emprestimos.find(e => e.id === comprovante.referencia_id);
       if (emp && emp.data_vencimento && emp.status === 'ativo') {
@@ -118,7 +150,13 @@ const Comprovantes = () => {
           jurosAtrasoCalculado = principalRestante * (diasAtraso * 0.01); // 1% por dia
         }
       }
+    } else if (comprovante.tipo === 'mensalidade') {
+      const mensInfo = getMensalidadeInfo(comprovante);
+      if (mensInfo && mensInfo.diasAtraso > 0) {
+        jurosAtrasoCalculado = mensInfo.multaAtraso + mensInfo.jurosAtraso;
+      }
     }
+    
     setJurosAtraso(jurosAtrasoCalculado > 0 ? String(jurosAtrasoCalculado.toFixed(2)) : '');
     
     setShowModal(true);
@@ -772,6 +810,69 @@ const Comprovantes = () => {
                         ) : (
                           <p className="text-orange-700">📊 <strong>Normal:</strong> 60% juros p/ tomador + 40% proporcional</p>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Detalhes da Mensalidade com Atraso */}
+              {selectedComprovante.tipo === 'mensalidade' && (() => {
+                const mensInfo = getMensalidadeInfo(selectedComprovante);
+                if (!mensInfo) return null;
+                
+                const cotistaData = cotistas.find(c => c.id === selectedComprovante.cotista_id);
+                const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_cota || 100));
+                const valorRifa = cotistaData?.participa_rifa ? (cotistaData.cotas || 1) * 20 : 0;
+                const valorTotal = valorBase + valorRifa + mensInfo.multaAtraso + mensInfo.jurosAtraso;
+                
+                if (mensInfo.diasAtraso === 0) return null;
+                
+                return (
+                  <div className="p-4 rounded-lg border-2 bg-red-50 border-red-400">
+                    <h4 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                      📋 Detalhes da Mensalidade
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-red-500 text-white">
+                        ⚠️ {mensInfo.diasAtraso} dia(s) em atraso
+                      </span>
+                    </h4>
+                    
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Valor base ({cotistaData?.cotas || 1} cota(s)):</span>
+                        <span className="font-medium">{formatCurrency(valorBase)}</span>
+                      </div>
+                      {valorRifa > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Rifa:</span>
+                          <span className="font-medium text-purple-600">{formatCurrency(valorRifa)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Vencimento:</span>
+                        <span className="text-red-600 font-medium">
+                          {mensInfo.vencimento.toLocaleDateString('pt-BR')}
+                        </span>
+                      </div>
+                      
+                      {/* Detalhamento do atraso */}
+                      <div className="bg-red-100 border border-red-300 rounded p-2 mt-2">
+                        <p className="text-red-800 font-medium text-sm mb-2">⚠️ Multa e Juros por Atraso</p>
+                        <div className="space-y-1">
+                          <div className="flex justify-between text-red-700">
+                            <span>Multa (20%):</span>
+                            <span className="font-medium">{formatCurrency(mensInfo.multaAtraso)}</span>
+                          </div>
+                          <div className="flex justify-between text-red-700">
+                            <span>Juros ({mensInfo.diasAtraso}d × 1%):</span>
+                            <span className="font-medium">{formatCurrency(mensInfo.jurosAtraso)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex justify-between font-bold text-red-800 pt-2 border-t border-red-200">
+                        <span>TOTAL A PAGAR:</span>
+                        <span>{formatCurrency(valorTotal)}</span>
                       </div>
                     </div>
                   </div>

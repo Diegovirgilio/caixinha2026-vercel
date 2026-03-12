@@ -19,6 +19,30 @@ const Emprestimos = () => {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
+  // Filtro por mês/ano
+  const mesAtual = String(new Date().getMonth() + 1).padStart(2, '0');
+  const anoAtual = String(new Date().getFullYear());
+  const [mesSelecionado, setMesSelecionado] = useState('todos');
+  const [anoSelecionado, setAnoSelecionado] = useState(anoAtual);
+
+  // Opções de meses
+  const mesesOpcoes = [
+    { valor: '01', nome: 'Janeiro' },
+    { valor: '02', nome: 'Fevereiro' },
+    { valor: '03', nome: 'Março' },
+    { valor: '04', nome: 'Abril' },
+    { valor: '05', nome: 'Maio' },
+    { valor: '06', nome: 'Junho' },
+    { valor: '07', nome: 'Julho' },
+    { valor: '08', nome: 'Agosto' },
+    { valor: '09', nome: 'Setembro' },
+    { valor: '10', nome: 'Outubro' },
+    { valor: '11', nome: 'Novembro' },
+    { valor: '12', nome: 'Dezembro' }
+  ];
+  
+  const anosOpcoes = ['2025', '2026', '2027'];
+
   // Form para adicionar/editar
   const [formData, setFormData] = useState({
     cotista_id: '',
@@ -65,7 +89,17 @@ const Emprestimos = () => {
       
       const matchSearch = e.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
       const matchStatus = filtroStatus === 'todos' || e.status === filtroStatus;
-      return matchSearch && matchStatus;
+      
+      // Filtro por mês/ano (baseado na data de criação)
+      let matchMes = true;
+      if (mesSelecionado !== 'todos') {
+        const dataEmprestimo = new Date(e.created_at);
+        const mesEmprestimo = String(dataEmprestimo.getMonth() + 1).padStart(2, '0');
+        const anoEmprestimo = String(dataEmprestimo.getFullYear());
+        matchMes = mesEmprestimo === mesSelecionado && anoEmprestimo === anoSelecionado;
+      }
+      
+      return matchSearch && matchStatus && matchMes;
     });
 
   // Separar por status
@@ -702,6 +736,25 @@ const Emprestimos = () => {
             />
           </div>
           <select
+            value={mesSelecionado}
+            onChange={(e) => setMesSelecionado(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="todos">Todos os Meses</option>
+            {mesesOpcoes.map(m => (
+              <option key={m.valor} value={m.valor}>{m.nome}</option>
+            ))}
+          </select>
+          <select
+            value={anoSelecionado}
+            onChange={(e) => setAnoSelecionado(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          >
+            {anosOpcoes.map(ano => (
+              <option key={ano} value={ano}>{ano}</option>
+            ))}
+          </select>
+          <select
             value={filtroStatus}
             onChange={(e) => setFiltroStatus(e.target.value)}
             className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
@@ -713,6 +766,16 @@ const Emprestimos = () => {
             <option value="rejeitado">Rejeitados</option>
           </select>
         </div>
+      </div>
+
+      {/* Contador de registros */}
+      <div className="text-sm text-gray-500">
+        Exibindo <span className="font-medium text-gray-700">{emprestimosFiltrados.length}</span> de <span className="font-medium text-gray-700">{emprestimos.filter(e => !cotistas.find(c => c.id === e.cotista_id)?.is_admin).length}</span> empréstimos
+        {mesSelecionado !== 'todos' && (
+          <span className="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded-full text-xs">
+            {mesesOpcoes.find(m => m.valor === mesSelecionado)?.nome}/{anoSelecionado}
+          </span>
+        )}
       </div>
 
       {/* Tabela */}

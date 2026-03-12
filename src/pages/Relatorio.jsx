@@ -8,7 +8,7 @@ import { formatCurrency } from '../utils/formatters';
 import { CONFIG } from '../utils/constants';
 
 const Relatorio = () => {
-  const { cotistas, mensalidades, emprestimos, rifas, cdi, isLoading } = useAppStore();
+  const { cotistas, mensalidades, emprestimos, rifas, cdi, isLoading, rifaSorteios, juros_atraso } = useAppStore();
   
   // Filtrar apenas cotistas (não admins)
   const apenasContistas = cotistas.filter(c => !c.is_admin);
@@ -39,19 +39,34 @@ const Relatorio = () => {
     return !cotista?.is_admin;
   });
   const emprestimosAtivos = emprestimosValidos.filter(e => e.status === 'ativo');
-  const totalEmprestado = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
-  const jurosEmprestimos = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
+  // Usar valor_emprestimo (principal) para empréstimos ativos, não valor_total
+  const totalEmprestado = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+  const jurosEmprestimosAtivos = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
   const emprestimosPagos = emprestimosValidos.filter(e => e.status === 'pago');
   const totalRecebidoEmprestimos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
   const jurosRecebidos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
+
+  // Rifas pagas (valor_rifa das mensalidades)
+  const rifasPagas = todasMensalidades
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+
+  // Prêmios de rifa pagos
+  const premiosRifaPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+
+  // Juros de atraso recebidos
+  const totalJurosAtraso = (juros_atraso || [])
+    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
 
   // Rifas e CDI
   const totalRifas = rifas.reduce((sum, r) => sum + Number(r.valor || 0), 0);
   const totalCdi = cdi.reduce((sum, c) => sum + Number(c.valor || 0), 0);
 
-  // Totais gerais
-  const totalEntradas = totalRecebido + totalRecebidoEmprestimos + totalRifas + totalCdi;
-  const saldoAtual = totalRecebido + totalRifas + totalCdi + jurosRecebidos - totalEmprestado;
+  // ===== SALDO ATUAL (mesma fórmula do Dashboard) =====
+  // Entradas: mensalidades + rifas + JUROS de empréstimos + juros atraso + CDI
+  // Saídas: empréstimos ativos (principal) + prêmios rifa
+  const saldoAtual = totalRecebido + rifasPagas + jurosRecebidos + totalJurosAtraso + totalCdi - totalEmprestado - premiosRifaPagos;
 
   // Dados por mês (excluindo admins)
   const dadosPorMes = CONFIG.MESES.map(mes => {

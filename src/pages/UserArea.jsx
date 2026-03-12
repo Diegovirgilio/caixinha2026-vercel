@@ -319,19 +319,47 @@ const UserArea = () => {
   };
 
   const openComprovanteModal = (tipo, item) => {
-    // Calcular valor total incluindo rifa
-    let valorDevido = Number(item.valor_devido || 0);
-    if (tipo === 'mensalidade' && cotista?.participa_rifa) {
-      valorDevido += (cotista.cotas || 0) * 20; // R$ 20 por cota
+    // Calcular valor total incluindo rifa e atraso
+    let valorBase = Number(item.valor_devido || 0);
+    let multaAtraso = 0;
+    let jurosAtraso = 0;
+    let diasAtraso = 0;
+    
+    if (tipo === 'mensalidade') {
+      // Calcular atraso da mensalidade
+      // Formato: YYYY-MM (ex: 2026-02)
+      const [ano, mes] = (item.mes_referencia || '').split('-').map(Number);
+      
+      if (ano && mes) {
+        const ultimoDiaMes = new Date(ano, mes, 0);
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        
+        if (hoje > ultimoDiaMes) {
+          diasAtraso = Math.floor((hoje - ultimoDiaMes) / (1000 * 60 * 60 * 24));
+          multaAtraso = valorBase * 0.20; // 20% multa fixa
+          jurosAtraso = valorBase * diasAtraso * 0.01; // 1% por dia
+        }
+      }
+      
+      // Adicionar rifa
+      if (cotista?.participa_rifa) {
+        valorBase += (cotista.cotas || 0) * 20; // R$ 20 por cota
+      }
     }
-    const valorRestante = valorDevido - (item.valor_pago || 0);
+    
+    const valorComAtraso = valorBase + multaAtraso + jurosAtraso;
+    const valorRestante = valorComAtraso - (item.valor_pago || 0);
     
     setComprovanteData({
       tipo, 
       referencia_id: item.id, 
       mes_referencia: item.mes_referencia || '',
       valor_informado: String(tipo === 'mensalidade' ? valorRestante : item.valor_total - (item.valor_pago || 0)),
-      arquivo: null
+      arquivo: null,
+      diasAtraso,
+      multaAtraso,
+      jurosAtraso
     });
     setShowComprovante(true);
   };
@@ -450,12 +478,49 @@ const UserArea = () => {
             <tbody className="divide-y divide-gray-200">
               {minhasMensalidades.map((m) => {
                 const valorRifa = cotista?.participa_rifa ? (cotista.cotas * 20) : 0;
-                const valorTotal = Number(m.valor_devido || 0) + valorRifa;
+                const valorBase = Number(m.valor_devido || 0);
+                
+                // Calcular atraso da mensalidade
+                // Vencimento = último dia do mês de referência
+                // Formato: YYYY-MM (ex: 2026-02)
+                const [ano, mes] = (m.mes_referencia || '').split('-').map(Number);
+                
+                const ultimoDiaMes = new Date(ano, mes, 0); // dia 0 do próximo mês = último dia do mês atual
+                const hoje = new Date();
+                hoje.setHours(0, 0, 0, 0);
+                
+                let diasAtraso = 0;
+                let multaAtraso = 0;
+                let jurosAtraso = 0;
+                
+                if (m.status !== 'pago' && ano && mes && hoje > ultimoDiaMes) {
+                  diasAtraso = Math.floor((hoje - ultimoDiaMes) / (1000 * 60 * 60 * 24));
+                  multaAtraso = valorBase * 0.20; // 20% multa fixa
+                  jurosAtraso = valorBase * diasAtraso * 0.01; // 1% por dia
+                }
+                
+                const valorComAtraso = valorBase + multaAtraso + jurosAtraso;
+                const valorTotal = valorComAtraso + valorRifa;
+                const estaAtrasado = diasAtraso > 0;
                 
                 return (
-                  <tr key={m.id}>
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{formatMesReferencia(m.mes_referencia)}</td>
-                    <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_devido)}</td>
+                  <tr key={m.id} className={estaAtrasado ? 'bg-red-50' : ''}>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                      {formatMesReferencia(m.mes_referencia)}
+                      {estaAtrasado && (
+                        <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                          {diasAtraso}d atraso
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-center text-gray-600">
+                      {formatCurrency(valorBase)}
+                      {estaAtrasado && (
+                        <div className="text-xs text-red-600">
+                          +{formatCurrency(multaAtraso + jurosAtraso)}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-center">
                       {valorRifa > 0 ? (
                         <span className="text-purple-600 font-medium">{formatCurrency(valorRifa)}</span>
@@ -463,7 +528,9 @@ const UserArea = () => {
                         <span className="text-gray-400">R$ 0,00</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-center font-medium text-blue-600">{formatCurrency(valorTotal)}</td>
+                    <td className={`px-4 py-3 text-sm text-center font-medium ${estaAtrasado ? 'text-red-600' : 'text-blue-600'}`}>
+                      {formatCurrency(valorTotal)}
+                    </td>
                     <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_pago)}</td>
                     <td className="px-4 py-3 text-center"><span className={`px-2 py-1 text-xs rounded-full ${STATUS_MENSALIDADE_COLORS[m.status]}`}>{m.status === 'pago' ? '✓ Pago' : m.status === 'parcial' ? '◐ Parcial' : '○ Pendente'}</span></td>
                     <td className="px-4 py-3 text-center">{m.status !== 'pago' && (temComprovantePendente('mensalidade', m.id) ? <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span> : <button onClick={() => openComprovanteModal('mensalidade', m)} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"><Upload size={14} />Comprovante</button>)}</td>
@@ -757,7 +824,42 @@ const UserArea = () => {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-4 border-b"><h3 className="text-lg font-semibold">Enviar Comprovante</h3><button onClick={() => setShowComprovante(false)} className="p-1 hover:bg-gray-100 rounded"><X size={20} /></button></div>
             <div className="p-4 space-y-4">
-              <div className="bg-blue-50 p-3 rounded-lg"><p className="text-sm text-blue-700"><strong>Tipo:</strong> {comprovanteData.tipo === 'mensalidade' ? 'Mensalidade' : 'Empréstimo'}{comprovanteData.mes_referencia && <> • {formatMesReferencia(comprovanteData.mes_referencia)}</>}</p></div>
+              <div className={`p-3 rounded-lg ${comprovanteData.diasAtraso > 0 ? 'bg-red-50 border border-red-200' : 'bg-blue-50'}`}>
+                <p className="text-sm text-gray-700">
+                  <strong>Tipo:</strong> {comprovanteData.tipo === 'mensalidade' ? 'Mensalidade' : 'Empréstimo'}
+                  {comprovanteData.mes_referencia && <> • {formatMesReferencia(comprovanteData.mes_referencia)}</>}
+                </p>
+                {comprovanteData.diasAtraso > 0 && (
+                  <span className="inline-block mt-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                    {comprovanteData.diasAtraso} dia(s) em atraso
+                  </span>
+                )}
+              </div>
+              
+              {/* Detalhamento do atraso */}
+              {comprovanteData.tipo === 'mensalidade' && comprovanteData.diasAtraso > 0 && (
+                <div className="bg-red-100 border border-red-300 rounded-lg p-3">
+                  <p className="text-sm font-medium text-red-800 flex items-center gap-2">
+                    <AlertTriangle size={16} />
+                    Multa e Juros por Atraso
+                  </p>
+                  <div className="mt-2 text-sm text-red-700 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Multa (20%):</span>
+                      <span className="font-medium">{formatCurrency(comprovanteData.multaAtraso)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Juros ({comprovanteData.diasAtraso}d × 1%):</span>
+                      <span className="font-medium">{formatCurrency(comprovanteData.jurosAtraso)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold border-t border-red-200 pt-1">
+                      <span>Total acréscimos:</span>
+                      <span>{formatCurrency(comprovanteData.multaAtraso + comprovanteData.jurosAtraso)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Valor (R$)</label><input type="number" step="0.01" value={comprovanteData.valor_informado} onChange={(e) => setComprovanteData({ ...comprovanteData, valor_informado: e.target.value })} className="w-full px-3 py-2 border rounded-lg" /></div>
               <div><label className="block text-sm font-medium text-gray-700 mb-1">Comprovante</label>
                 <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">

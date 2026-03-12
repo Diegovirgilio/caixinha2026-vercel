@@ -27,8 +27,8 @@ const Mensalidades = () => {
   const [success, setSuccess] = useState('');
   const [error, setError] = useState('');
 
-  // Mês no formato MM/YYYY (igual ao banco)
-  const mesAnoFormatado = `${mesSelecionado}/${anoSelecionado}`;
+  // Mês no formato YYYY-MM (igual ao banco)
+  const mesAnoFormatado = `${anoSelecionado}-${mesSelecionado}`;
 
   // Opções de meses
   const mesesOpcoes = [
@@ -519,14 +519,36 @@ const Mensalidades = () => {
             <tbody className="divide-y divide-gray-200">
               {mensalidadesFiltradas.map((m) => {
                 const cotistaInfo = (cotistas || []).find(c => c.id === m.cotista_id);
+                const valorBase = Number(m.valor_devido || 0);
                 const valorRifa = cotistaInfo?.participa_rifa ? (cotistaInfo.cotas * 20) : 0;
-                const valorTotal = Number(m.valor_devido || 0) + valorRifa;
+                
+                // Calcular atraso da mensalidade
+                // Formato: YYYY-MM (ex: 2026-02)
+                const [ano, mes] = (m.mes_referencia || '').split('-').map(Number);
+                
+                const ultimoDiaMes = new Date(ano, mes, 0); // último dia do mês
+                const hoje = new Date();
+                hoje.setHours(0, 0, 0, 0);
+                
+                let diasAtraso = 0;
+                let multaAtraso = 0;
+                let jurosAtraso = 0;
+                
+                if (m.status !== 'pago' && ano && mes && hoje > ultimoDiaMes) {
+                  diasAtraso = Math.floor((hoje - ultimoDiaMes) / (1000 * 60 * 60 * 24));
+                  multaAtraso = valorBase * 0.20; // 20% multa fixa
+                  jurosAtraso = valorBase * diasAtraso * 0.01; // 1% por dia
+                }
+                
+                const valorComAtraso = valorBase + multaAtraso + jurosAtraso;
+                const valorTotal = valorComAtraso + valorRifa;
+                const estaAtrasado = diasAtraso > 0;
                 
                 return (
-                <tr key={m.id} className="hover:bg-gray-50">
+                <tr key={m.id} className={estaAtrasado ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-medium">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-medium ${estaAtrasado ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
                         {m.cotista?.nome?.charAt(0)}
                       </div>
                       <div>
@@ -534,6 +556,11 @@ const Mensalidades = () => {
                         {cotistaInfo?.participa_rifa && (
                           <span className="ml-2 text-purple-500" title="Participa da rifa">
                             <Gift size={14} className="inline" />
+                          </span>
+                        )}
+                        {estaAtrasado && (
+                          <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full">
+                            {diasAtraso}d atraso
                           </span>
                         )}
                       </div>
@@ -545,7 +572,12 @@ const Mensalidades = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
-                    {formatCurrency(m.valor_devido)}
+                    {formatCurrency(valorBase)}
+                    {estaAtrasado && (
+                      <div className="text-xs text-red-600">
+                        +{formatCurrency(multaAtraso + jurosAtraso)}
+                      </div>
+                    )}
                   </td>
                   <td className="px-6 py-4 text-center">
                     {valorRifa > 0 ? (
@@ -554,7 +586,7 @@ const Mensalidades = () => {
                       <span className="text-gray-400">R$ 0,00</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-center font-medium text-blue-600">
+                  <td className={`px-6 py-4 text-center font-medium ${estaAtrasado ? 'text-red-600' : 'text-blue-600'}`}>
                     {formatCurrency(valorTotal)}
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">

@@ -52,13 +52,24 @@ export const formatDate = (date, format = 'short') => {
 export const formatMesReferencia = (mes) => {
   if (!mes) return '-';
   
-  const [month, year] = mes.split('/');
   const meses = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
   
-  return `${meses[parseInt(month) - 1]} de ${year}`;
+  // Formato: YYYY-MM (ex: 2026-02)
+  if (mes.includes('-')) {
+    const [year, month] = mes.split('-');
+    return `${meses[parseInt(month) - 1]} de ${year}`;
+  }
+  
+  // Fallback para formato antigo MM/YYYY
+  if (mes.includes('/')) {
+    const [month, year] = mes.split('/');
+    return `${meses[parseInt(month) - 1]} de ${year}`;
+  }
+  
+  return mes;
 };
 
 // Formatar telefone

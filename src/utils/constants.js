@@ -5,9 +5,9 @@ export const CONFIG = {
   APP_NAME: 'Caixinha 2026',
   APP_VERSION: '2.0.0',
   
-  // Período - meses fixos do ano
-  MESES: ['01/2026', '02/2026', '03/2026', '04/2026', '05/2026', '06/2026', 
-          '07/2026', '08/2026', '09/2026', '10/2026', '11/2026']
+  // Período - meses fixos do ano (formato YYYY-MM)
+  MESES: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', 
+          '2026-07', '2026-08', '2026-09', '2026-10', '2026-11']
 };
 
 // Status das mensalidades
