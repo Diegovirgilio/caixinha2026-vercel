@@ -15,10 +15,13 @@ const ExtratoCotista = ({ cotista, onClose }) => {
     juros_atraso,
     juros_emprestimo,
     cotistas,
+    comprovantes,
     configuracoes
   } = useAppStore();
 
   const [showDetalhes, setShowDetalhes] = useState(false);
+  const [showMensalidades, setShowMensalidades] = useState(false);
+  const [showComprovantes, setShowComprovantes] = useState(false);
 
   if (!cotista) return null;
 
@@ -162,17 +165,21 @@ const ExtratoCotista = ({ cotista, onClose }) => {
     }
   });
 
-  // Bônus Rifa
-  if (cotista.participa_rifa && participantesRifa > 0) {
+  // Bônus Rifa (proporcional ao valor de rifa pago - só ativos que pagaram)
+  if (cotista.participa_rifa && idsCotistasAtivosRifa.includes(cotista.id)) {
     (rifaSorteios || []).forEach(sorteio => {
-      const bonusSorteio = Number(sorteio.valor_caixinha || 0) / participantesRifa;
-      if (bonusSorteio > 0) {
-        historicoRendimentos.push({
-          tipo: 'rifa',
-          descricao: `Bônus rifa ${sorteio.mes_referencia}`,
-          valor: bonusSorteio,
-          data: sorteio.created_at
-        });
+      // Distribuir sobra proporcional ao valor pago pelo cotista
+      const valorCaixinhaSorteio = Number(sorteio.valor_caixinha || 0);
+      if (valorCaixinhaSorteio > 0 && totalRifaAtivos > 0) {
+        const bonusSorteio = (totalRifaPaga / totalRifaAtivos) * valorCaixinhaSorteio;
+        if (bonusSorteio > 0) {
+          historicoRendimentos.push({
+            tipo: 'rifa',
+            descricao: `Bônus rifa ${sorteio.mes_referencia}`,
+            valor: bonusSorteio,
+            data: sorteio.created_at
+          });
+        }
       }
     });
   }
@@ -367,6 +374,144 @@ const ExtratoCotista = ({ cotista, onClose }) => {
               </div>
             </div>
           </div>
+
+          {/* Mensalidades por mês */}
+          <div className="bg-white border rounded-xl overflow-hidden">
+            <button
+              onClick={() => setShowMensalidades(!showMensalidades)}
+              className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            >
+              <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                <Calendar size={18} />
+                Mensalidades ({mensalidadesCotista.length} pagas)
+              </h3>
+              {showMensalidades ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
+            
+            {showMensalidades && (
+              <div className="border-t max-h-64 overflow-y-auto">
+                {Object.values(mensalidades || {}).flat()
+                  .filter(m => m.cotista_id === cotista.id)
+                  .sort((a, b) => (a.mes_referencia || '').localeCompare(b.mes_referencia || ''))
+                  .map((m, idx) => {
+                    const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                    const [ano, mes] = (m.mes_referencia || '').split('-');
+                    const label = mes ? `${meses[parseInt(mes) - 1]}/${ano}` : m.mes_referencia;
+                    
+                    return (
+                      <div key={idx} className="p-3 flex justify-between items-center hover:bg-gray-50 border-b last:border-b-0">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{label}</p>
+                          <p className="text-xs text-gray-500">
+                            Devido: {formatCurrency(m.valor_devido)}
+                            {Number(m.valor_rifa || 0) > 0 && ` + Rifa: ${formatCurrency(m.valor_rifa)}`}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-sm font-medium ${
+                            m.status === 'pago' ? 'text-green-600' : 
+                            m.status === 'parcial' ? 'text-yellow-600' : 'text-red-500'
+                          }`}>
+                            {formatCurrency(m.valor_pago || 0)}
+                          </span>
+                          <p className={`text-xs ${
+                            m.status === 'pago' ? 'text-green-500' : 
+                            m.status === 'parcial' ? 'text-yellow-500' : 'text-red-400'
+                          }`}>
+                            {m.status === 'pago' ? 'Pago' : m.status === 'parcial' ? 'Parcial' : 'Pendente'}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
+          </div>
+
+          {/* Comprovantes */}
+          {(() => {
+            const meusComprovantes = (comprovantes || []).filter(c => c.cotista_id === cotista.id);
+            if (meusComprovantes.length === 0) return null;
+            
+            return (
+              <div className="bg-white border rounded-xl overflow-hidden">
+                <button
+                  onClick={() => setShowComprovantes(!showComprovantes)}
+                  className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <h3 className="font-semibold text-gray-700 flex items-center gap-2">
+                    <DollarSign size={18} />
+                    Comprovantes ({meusComprovantes.length})
+                  </h3>
+                  {showComprovantes ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                </button>
+                
+                {showComprovantes && (
+                  <div className="border-t max-h-48 overflow-y-auto">
+                    {meusComprovantes
+                      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                      .map((comp, idx) => (
+                        <div key={idx} className="p-3 flex justify-between items-center hover:bg-gray-50 border-b last:border-b-0">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">
+                              {comp.tipo === 'mensalidade' ? 'Mensalidade' : 'Empréstimo'} — {comp.mes_referencia || '-'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(comp.created_at).toLocaleDateString('pt-BR')}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-sm font-medium">{formatCurrency(comp.valor_informado)}</span>
+                            <p className={`text-xs ${
+                              comp.status === 'aprovado' ? 'text-green-500' : 
+                              comp.status === 'rejeitado' ? 'text-red-500' : 'text-yellow-500'
+                            }`}>
+                              {comp.status === 'aprovado' ? 'Aprovado' : comp.status === 'rejeitado' ? 'Rejeitado' : 'Pendente'}
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {/* Empréstimos do cotista */}
+          {(() => {
+            const meusEmprestimos = (emprestimos || []).filter(e => e.cotista_id === cotista.id && (e.status === 'ativo' || e.status === 'pendente'));
+            if (meusEmprestimos.length === 0) return null;
+            
+            return (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
+                <h3 className="font-semibold text-orange-800 flex items-center gap-2 mb-3">
+                  <DollarSign size={18} />
+                  Empréstimos em Aberto ({meusEmprestimos.length})
+                </h3>
+                <div className="space-y-2">
+                  {meusEmprestimos.map((emp, idx) => (
+                    <div key={idx} className="bg-white p-3 rounded-lg flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-gray-800">
+                          {formatCurrency(emp.principal_restante || emp.valor_emprestimo)}
+                          <span className="text-xs text-gray-500 ml-1">
+                            ({emp.modalidade === 'caixinha' ? 'Caixinha' : 'Normal'})
+                          </span>
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {emp.data_vencimento ? `Vence: ${new Date(emp.data_vencimento).toLocaleDateString('pt-BR')}` : 'Sem vencimento'}
+                        </p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        emp.status === 'ativo' ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {emp.status === 'ativo' ? 'Ativo' : 'Pendente'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Footer */}

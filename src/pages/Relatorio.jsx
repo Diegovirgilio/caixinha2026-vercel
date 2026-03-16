@@ -8,7 +8,7 @@ import { formatCurrency } from '../utils/formatters';
 import { CONFIG } from '../utils/constants';
 
 const Relatorio = () => {
-  const { cotistas, mensalidades, emprestimos, rifas, cdi, isLoading, rifaSorteios, juros_atraso } = useAppStore();
+  const { cotistas, mensalidades, emprestimos, rifas, cdi, isLoading, rifaSorteios, juros_atraso, juros_emprestimo } = useAppStore();
   
   // Filtrar apenas cotistas (não admins)
   const apenasContistas = cotistas.filter(c => !c.is_admin);
@@ -39,14 +39,13 @@ const Relatorio = () => {
     return !cotista?.is_admin;
   });
   const emprestimosAtivos = emprestimosValidos.filter(e => e.status === 'ativo');
-  // Usar valor_emprestimo (principal) para empréstimos ativos, não valor_total
   const totalEmprestado = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
   const jurosEmprestimosAtivos = emprestimosAtivos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
   const emprestimosPagos = emprestimosValidos.filter(e => e.status === 'pago');
   const totalRecebidoEmprestimos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_total || 0), 0);
   const jurosRecebidos = emprestimosPagos.reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
 
-  // Rifas pagas (valor_rifa das mensalidades)
+  // Rifas pagas (valor_rifa das mensalidades) — fonte principal
   const rifasPagas = todasMensalidades
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
@@ -59,14 +58,22 @@ const Relatorio = () => {
   const totalJurosAtraso = (juros_atraso || [])
     .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
 
-  // Rifas e CDI
-  const totalRifas = rifas.reduce((sum, r) => sum + Number(r.valor || 0), 0);
+  // Juros de empréstimo (da tabela juros_emprestimo — mais preciso que emprestimos.valor_juros)
+  const totalJurosEmprestimoTabela = (juros_emprestimo || [])
+    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+  // Usar o maior dos dois — tabela juros_emprestimo é mais precisa quando preenchida
+  const jurosEmpRecebidos = totalJurosEmprestimoTabela > 0 ? totalJurosEmprestimoTabela : jurosRecebidos;
+
+  // CDI
   const totalCdi = cdi.reduce((sum, c) => sum + Number(c.valor || 0), 0);
 
-  // ===== SALDO ATUAL (mesma fórmula do Dashboard) =====
-  // Entradas: mensalidades + rifas + JUROS de empréstimos + juros atraso + CDI
+  // ===== SALDO ATUAL (mesma fórmula do Dashboard e verificar_calculos.sql) =====
+  // Entradas: mensalidades + rifas_pagas + JUROS de empréstimos + juros atraso + CDI
   // Saídas: empréstimos ativos (principal) + prêmios rifa
-  const saldoAtual = totalRecebido + rifasPagas + jurosRecebidos + totalJurosAtraso + totalCdi - totalEmprestado - premiosRifaPagos;
+  const saldoAtual = totalRecebido + rifasPagas + jurosEmpRecebidos + totalJurosAtraso + totalCdi - totalEmprestado - premiosRifaPagos;
+
+  // Total Extras inclui TODOS os rendimentos (FIX: faltava juros_atraso)
+  const totalExtras = rifasPagas + totalCdi + jurosEmpRecebidos + totalJurosAtraso;
 
   // Dados por mês (excluindo admins)
   const dadosPorMes = CONFIG.MESES.map(mes => {
@@ -305,9 +312,9 @@ const Relatorio = () => {
             <div className="flex items-center justify-between p-3 bg-purple-50 rounded-lg">
               <div className="flex items-center gap-3">
                 <Gift className="text-purple-500" size={20} />
-                <span className="text-gray-700">Rifas ({rifas.length})</span>
+                <span className="text-gray-700">Rifas Arrecadadas</span>
               </div>
-              <span className="font-bold text-purple-600">{formatCurrency(totalRifas)}</span>
+              <span className="font-bold text-purple-600">{formatCurrency(rifasPagas)}</span>
             </div>
             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
               <div className="flex items-center gap-3">
@@ -321,12 +328,30 @@ const Relatorio = () => {
                 <Percent className="text-orange-500" size={20} />
                 <span className="text-gray-700">Juros de Empréstimos</span>
               </div>
-              <span className="font-bold text-orange-600">{formatCurrency(jurosRecebidos)}</span>
+              <span className="font-bold text-orange-600">{formatCurrency(jurosEmpRecebidos)}</span>
             </div>
+            {totalJurosAtraso > 0 && (
+              <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Percent className="text-red-500" size={20} />
+                  <span className="text-gray-700">Juros de Atraso</span>
+                </div>
+                <span className="font-bold text-red-600">{formatCurrency(totalJurosAtraso)}</span>
+              </div>
+            )}
+            {premiosRifaPagos > 0 && (
+              <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <Gift className="text-yellow-600" size={20} />
+                  <span className="text-gray-700">Prêmios Rifa (saída)</span>
+                </div>
+                <span className="font-bold text-yellow-700">- {formatCurrency(premiosRifaPagos)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border-t-2 border-blue-200">
               <span className="font-semibold text-gray-700">Total Extras</span>
               <span className="font-bold text-blue-600">
-                {formatCurrency(totalRifas + totalCdi + jurosRecebidos)}
+                {formatCurrency(totalExtras)}
               </span>
             </div>
           </div>

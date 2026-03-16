@@ -395,10 +395,6 @@ export const useAppStore = create((set, get) => ({
         }
       } else if (comprovante.tipo === 'emprestimo') {
         // Empréstimo: SEMPRE atualiza (múltiplos pagamentos permitidos)
-        console.log('=== APROVANDO EMPRÉSTIMO ===');
-        console.log('Comprovante:', comprovante);
-        console.log('referencia_id:', comprovante.referencia_id);
-        
         const { data: emprestimo, error: fetchError } = await supabase
           .from('emprestimos')
           .select('*')
@@ -409,14 +405,11 @@ export const useAppStore = create((set, get) => ({
           console.error('Erro ao buscar empréstimo:', fetchError);
         }
         
-        console.log('Empréstimo encontrado:', emprestimo);
-        
         if (emprestimo) {
           const modalidade = emprestimo.modalidade || 'normal';
           const principalAtual = Number(emprestimo.principal_restante || emprestimo.valor_emprestimo || 0);
           
           // Extrair tipo de pagamento da observação
-          // Formato: "Tipo: Quitação Total (20%)" ou "Tipo: Só Juros (30%)" ou "Tipo: Juros + Parcial (30%)"
           const observacao = comprovante.observacao || '';
           let tipoPagamento = 'quitacao';
           let taxaJuros = 20;
@@ -439,14 +432,12 @@ export const useAppStore = create((set, get) => ({
           let novoStatus = 'ativo';
           
           if (tipoPagamento === 'soJuros') {
-            // Só juros: todo valor vai para juros, principal continua
             valorJuros = valorParaCotista;
             principalAbatido = 0;
             novoPrincipal = principalAtual;
             novoStatus = 'ativo';
             
           } else if (tipoPagamento === 'parcial') {
-            // Parcial: juros + parte do principal
             const jurosCalculado = principalAtual * (taxaJuros / 100);
             valorJuros = Math.min(jurosCalculado, valorParaCotista);
             principalAbatido = Math.max(0, valorParaCotista - valorJuros);
@@ -454,24 +445,11 @@ export const useAppStore = create((set, get) => ({
             novoStatus = novoPrincipal <= 0 ? 'pago' : 'ativo';
             
           } else {
-            // Quitação: juros + todo principal
             valorJuros = principalAtual * (taxaJuros / 100);
             principalAbatido = principalAtual;
             novoPrincipal = 0;
             novoStatus = 'pago';
           }
-          
-          console.log('Aprovando empréstimo:', {
-            tipoPagamento,
-            modalidade,
-            principalAtual,
-            valorParaCotista,
-            valorJuros,
-            principalAbatido,
-            novoPrincipal,
-            novoStatus,
-            taxaJuros
-          });
           
           // Registrar juros na tabela juros_emprestimo
           if (valorJuros > 0) {
@@ -492,37 +470,31 @@ export const useAppStore = create((set, get) => ({
               });
           }
           
-          // Atualizar empréstimo
           // Calcular novo vencimento: vencimento atual + 1 mês
-          let novoVencimento = emprestimo.data_vencimento;
+          // FIX: null-safe — só opera se data_vencimento existe e é válida
+          let novoVencimentoStr = emprestimo.data_vencimento || null;
           if (novoStatus === 'ativo' && emprestimo.data_vencimento) {
             const vencimentoAtual = new Date(emprestimo.data_vencimento);
-            novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+            if (!isNaN(vencimentoAtual.getTime())) {
+              const novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+              novoVencimentoStr = novoVencimento.toISOString().split('T')[0];
+            }
           }
           
           const dadosUpdate = {
             principal_restante: novoPrincipal,
             status: novoStatus,
             data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
-            data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : emprestimo.data_vencimento
+            data_vencimento: novoStatus === 'ativo' ? novoVencimentoStr : emprestimo.data_vencimento
           };
           
-          console.log('=== ATUALIZANDO EMPRÉSTIMO ===');
-          console.log('ID:', comprovante.referencia_id);
-          console.log('Dados para update:', dadosUpdate);
-          
-          const { data: updateResult, error: empError } = await supabase
+          const { error: empError } = await supabase
             .from('emprestimos')
             .update(dadosUpdate)
-            .eq('id', comprovante.referencia_id)
-            .select();
-          
-          console.log('Resultado update:', updateResult);
+            .eq('id', comprovante.referencia_id);
           
           if (empError) {
             console.error('Erro ao atualizar empréstimo:', empError);
-          } else {
-            console.log('Empréstimo atualizado com sucesso!');
           }
         } else {
           console.error('Empréstimo não encontrado com ID:', comprovante.referencia_id);
@@ -900,10 +872,23 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
+  // ===== HELPERS =====
+  // Centraliza filtro de admins — evita repetir .filter(c => !c.is_admin) em toda página
+  getAdminIds: () => {
+    const { cotistas } = get();
+    return (cotistas || []).filter(c => c.is_admin).map(c => c.id);
+  },
+
+  getCotistasAtivos: () => {
+    const { cotistas } = get();
+    return (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo');
+  },
+
   // ===== CÁLCULOS =====
   getTotalCotas: () => {
+    // Exclui admins — cotas de admin não entram na distribuição
     const { cotistas } = get();
-    return cotistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
+    return (cotistas || []).filter(c => !c.is_admin).reduce((sum, c) => sum + (c.cotas || 0), 0);
   },
 
   getTotalInvestido: () => {
@@ -1118,13 +1103,14 @@ export const useAppStore = create((set, get) => ({
         
         await supabase.from('rifa_numeros').insert(numerosParaInserir);
       } else if (diferenca < 0) {
-        // Precisa remover números
+        // Precisa remover números — batch delete em vez de loop
         const numerosParaRemover = numerosAtuais
           .sort(() => Math.random() - 0.5)
           .slice(0, Math.abs(diferenca));
         
-        for (const num of numerosParaRemover) {
-          await supabase.from('rifa_numeros').delete().eq('id', num.id);
+        const idsParaRemover = numerosParaRemover.map(n => n.id);
+        if (idsParaRemover.length > 0) {
+          await supabase.from('rifa_numeros').delete().in('id', idsParaRemover);
         }
       }
       
@@ -1234,13 +1220,13 @@ export const useAppStore = create((set, get) => ({
           const quantidadeRemover = Math.min(3, numerosRestantes.length - 1); // -1 para garantir que sobre pelo menos 1
           
           if (quantidadeRemover > 0) {
-            // Embaralhar e pegar os primeiros N para remover
             const numerosParaRemover = numerosRestantes
               .sort(() => Math.random() - 0.5)
               .slice(0, quantidadeRemover);
             
-            for (const num of numerosParaRemover) {
-              await supabase.from('rifa_numeros').delete().eq('id', num.id);
+            const idsParaRemover = numerosParaRemover.map(n => n.id);
+            if (idsParaRemover.length > 0) {
+              await supabase.from('rifa_numeros').delete().in('id', idsParaRemover);
             }
           }
         }
@@ -1271,11 +1257,23 @@ export const useUIStore = create((set) => ({
   currentTab: '',
   sidebarOpen: true,
   
+  // Toast global
+  toast: null, // { tipo: 'success'|'error'|'info'|'warning', mensagem: string }
+  
   setShowPixModal: (show) => set({ showPixModal: show }),
   setShowChangePasswordModal: (show) => set({ showChangePasswordModal: show }),
   setShowNotifications: (show) => set({ showNotifications: show }),
   setCurrentTab: (tab) => set({ currentTab: tab }),
-  setSidebarOpen: (open) => set({ sidebarOpen: open })
+  setSidebarOpen: (open) => set({ sidebarOpen: open }),
+  
+  // Toast helpers
+  showToast: (mensagem, tipo = 'success', duracao = 3000) => {
+    set({ toast: { tipo, mensagem } });
+    if (duracao > 0) {
+      setTimeout(() => set({ toast: null }), duracao);
+    }
+  },
+  hideToast: () => set({ toast: null })
 }));
 
 export default { useAuthStore, useAppStore, useUIStore };

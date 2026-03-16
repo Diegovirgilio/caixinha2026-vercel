@@ -3,7 +3,7 @@
 // Configurações fixas (não mudam)
 export const CONFIG = {
   APP_NAME: 'Caixinha 2026',
-  APP_VERSION: '2.0.0',
+  APP_VERSION: '2.1.0',
   
   // Período - meses fixos do ano (formato YYYY-MM)
   MESES: ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', 

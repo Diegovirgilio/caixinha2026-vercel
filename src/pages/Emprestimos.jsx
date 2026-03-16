@@ -289,11 +289,14 @@ const Emprestimos = () => {
         });
       }
       
-      // Calcular novo vencimento - vencimento atual + 1 mês
-      let novoVencimento = pagamentoEmprestimo.data_vencimento;
+      // Calcular novo vencimento - vencimento atual + 1 mês (null-safe)
+      let novoVencimentoStr = pagamentoEmprestimo.data_vencimento || null;
       if (novoStatus === 'ativo' && pagamentoEmprestimo.data_vencimento) {
         const vencimentoAtual = new Date(pagamentoEmprestimo.data_vencimento);
-        novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+        if (!isNaN(vencimentoAtual.getTime())) {
+          const novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
+          novoVencimentoStr = novoVencimento.toISOString().split('T')[0];
+        }
       }
       
       // Atualizar empréstimo (sem valor_pago - coluna não existe)
@@ -303,7 +306,7 @@ const Emprestimos = () => {
           principal_restante: novoPrincipal,
           status: novoStatus,
           data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
-          data_vencimento: novoStatus === 'ativo' ? novoVencimento.toISOString().split('T')[0] : pagamentoEmprestimo.data_vencimento
+          data_vencimento: novoStatus === 'ativo' ? novoVencimentoStr : pagamentoEmprestimo.data_vencimento
         })
         .eq('id', pagamentoEmprestimo.id);
       

@@ -443,15 +443,15 @@ const App = () => {
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
       <header className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-800 text-white shadow-lg sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 py-4">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 py-3 sm:py-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div>
-                <h1 className="text-xl font-bold flex items-center gap-2">
-                  <PiggyBank size={28} />
-                  {CONFIG.APP_NAME}
+            <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-bold flex items-center gap-2">
+                  <PiggyBank size={24} className="flex-shrink-0" />
+                  <span className="truncate">{CONFIG.APP_NAME}</span>
                 </h1>
-                <div className="flex items-center gap-2">
+                <div className="hidden sm:flex items-center gap-2">
                   <p className="text-blue-200 text-xs">Sistema de Gestão Financeira</p>
                   <div className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-green-500/30 text-green-200">
                     <Wifi size={10} />
@@ -461,34 +461,34 @@ const App = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-3">
               <button
                 onClick={() => setShowPixModal(true)}
-                className="bg-gradient-to-r from-green-500 to-teal-500 px-4 py-2 rounded-lg text-sm font-medium hover:from-green-600 hover:to-teal-600 hidden sm:flex items-center gap-2"
+                className="bg-gradient-to-r from-green-500 to-teal-500 p-2 sm:px-4 sm:py-2 rounded-lg text-sm font-medium hover:from-green-600 hover:to-teal-600 flex items-center gap-2"
               >
                 <DollarSign size={16} />
-                PIX
+                <span className="hidden sm:inline">PIX</span>
               </button>
 
-              <div className="flex items-center gap-3 pl-3 border-l border-white/20">
-                <div className="hidden sm:block text-right">
+              <div className="flex items-center gap-1.5 sm:gap-3 pl-2 sm:pl-3 border-l border-white/20">
+                <div className="hidden md:block text-right">
                   <p className="text-sm font-medium">{cotista?.nome}</p>
                   <p className="text-xs text-blue-200">
                     {cotista?.is_admin ? 'Administrador' : `${cotista?.cotas} cotas`}
                   </p>
                 </div>
-                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center text-lg font-bold">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white/20 rounded-full flex items-center justify-center text-sm sm:text-lg font-bold flex-shrink-0">
                   {cotista?.nome?.charAt(0)}
                 </div>
                 <button 
                   onClick={() => setShowChangePasswordModal(true)} 
-                  className="p-2 hover:bg-white/10 rounded-lg" 
+                  className="p-1.5 sm:p-2 hover:bg-white/10 rounded-lg hidden sm:block" 
                   title="Trocar Senha"
                 >
                   <Key size={20} />
                 </button>
-                <button onClick={logout} className="p-2 hover:bg-white/10 rounded-lg" title="Sair">
-                  <LogOut size={20} />
+                <button onClick={logout} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-lg" title="Sair">
+                  <LogOut size={18} />
                 </button>
               </div>
             </div>
@@ -498,20 +498,21 @@ const App = () => {
 
       {/* Navegação */}
       <nav className="bg-white shadow-md sticky top-[72px] z-10">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex overflow-x-auto">
+        <div className="max-w-7xl mx-auto px-2 sm:px-4">
+          <div className="flex overflow-x-auto scrollbar-hide">
             {tabs.map(({ id, label, icon: Icon, badge }) => (
               <button
                 key={id}
                 onClick={() => setCurrentTab(id)}
-                className={`flex items-center gap-2 px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap relative ${
+                className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-3 sm:py-4 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap relative flex-shrink-0 ${
                   currentTab === id
                     ? 'border-blue-600 text-blue-600 bg-blue-50'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 <Icon size={18} />
-                {label}
+                <span className="hidden sm:inline">{label}</span>
+                <span className="sm:hidden text-[10px]">{label.split(' ')[0]}</span>
                 {badge > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
                     {badge > 9 ? '9+' : badge}
@@ -560,6 +561,9 @@ const App = () => {
         />
       )}
 
+      {/* Toast Global */}
+      <Toast />
+
       {/* Banner Instalar App PWA */}
       {showInstallBanner && (
         <div className="fixed bottom-4 left-4 right-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center justify-between gap-3 max-w-md mx-auto">
@@ -589,6 +593,37 @@ const App = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ==================== TOAST COMPONENT ====================
+const Toast = () => {
+  const { toast, hideToast } = useUIStore();
+  
+  if (!toast) return null;
+  
+  const cores = {
+    success: 'bg-green-500',
+    error: 'bg-red-500',
+    info: 'bg-blue-500',
+    warning: 'bg-amber-500'
+  };
+  
+  const icones = {
+    success: <CheckCircle size={20} />,
+    error: <AlertCircle size={20} />,
+    info: <AlertCircle size={20} />,
+    warning: <AlertCircle size={20} />
+  };
+  
+  return (
+    <div className={`fixed bottom-6 right-6 z-[9999] ${cores[toast.tipo] || cores.info} text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-fadeIn max-w-sm`}>
+      {icones[toast.tipo]}
+      <span className="text-sm font-medium flex-1">{toast.mensagem}</span>
+      <button onClick={hideToast} className="p-1 hover:bg-white/20 rounded-lg">
+        <X size={16} />
+      </button>
     </div>
   );
 };
