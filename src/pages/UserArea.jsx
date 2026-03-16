@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, TrendingUp, Clock, CheckCircle, AlertCircle,
   Plus, Send, Key, PiggyBank, Calendar, FileText, Upload,
@@ -66,79 +66,64 @@ const UserArea = () => {
   const limite = solicitacao.modalidade === 'caixinha' ? limiteCaixinha : limiteNormal;
   const participacao = totalCotas > 0 ? ((cotista?.cotas || 0) / totalCotas) * 100 : 0;
   
-  // Cálculos pesados memoizados — só recalcula quando dependências mudam
-  const { bonusRifas, bonusCDI, bonusJurosAtraso, juros60, juros40, jurosCaixinha, jurosRecebidos, saldoFinal } = useMemo(() => {
-    const todasMensalidades = Object.values(mensalidades || {}).flat();
+  // Bônus Rifa: proporcional ao valor de rifa pago pelo cotista
+  const todasMensalidades = Object.values(mensalidades || {}).flat();
+  
+  const cotistasAtivosRifa = (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo' && c.participa_rifa);
+  const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
+  
+  const totalRifaArrecadado = todasMensalidades
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  const totalRifaAtivos = todasMensalidades
+    .filter(m => (m.status === 'pago' || m.status === 'parcial') && idsCotistasAtivosRifa.includes(m.cotista_id))
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  const meuValorRifaPago = idsCotistasAtivosRifa.includes(cotista?.id)
+    ? todasMensalidades
+        .filter(m => m.cotista_id === cotista?.id && (m.status === 'pago' || m.status === 'parcial'))
+        .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0)
+    : 0;
+  
+  const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
+  const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
+  
+  const bonusRifas = totalRifaAtivos > 0 
+    ? (meuValorRifaPago / totalRifaAtivos) * sobraCaixinhaRifa
+    : 0;
+  
+  // Bônus CDI: proporcional às cotas
+  const totalCDI = (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0);
+  const bonusCDI = (totalCDI * participacao) / 100;
+  
+  // Bônus Juros por Atraso: proporcional às cotas
+  const totalJurosAtrasoGeral = (juros_atraso || []).reduce((s, j) => s + Number(j.valor_juros || 0), 0);
+  const bonusJurosAtraso = (totalJurosAtrasoGeral * participacao) / 100;
+  
+  // Calcular juros SEPARADOS usando tabela juros_emprestimo
+  const jurosEmprestimoList = juros_emprestimo || [];
+  
+  let juros60 = 0;
+  let juros40 = 0;
+  let jurosCaixinha = 0;
+  
+  jurosEmprestimoList.forEach(j => {
+    const valorJuros = Number(j.valor_juros || 0);
+    const modalidade = j.modalidade || 'normal';
     
-    // Cotistas ativos que participam da rifa
-    const cotistasAtivosRifa = (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo' && c.participa_rifa);
-    const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
-    
-    const totalRifaArrecadado = todasMensalidades
-      .filter(m => m.status === 'pago' || m.status === 'parcial')
-      .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-    
-    const totalRifaAtivos = todasMensalidades
-      .filter(m => (m.status === 'pago' || m.status === 'parcial') && idsCotistasAtivosRifa.includes(m.cotista_id))
-      .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-    
-    const meuValorRifaPago = idsCotistasAtivosRifa.includes(cotista?.id)
-      ? todasMensalidades
-          .filter(m => m.cotista_id === cotista?.id && (m.status === 'pago' || m.status === 'parcial'))
-          .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0)
-      : 0;
-    
-    const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
-    const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
-    
-    const _bonusRifas = totalRifaAtivos > 0 
-      ? (meuValorRifaPago / totalRifaAtivos) * sobraCaixinhaRifa
-      : 0;
-    
-    // Bônus CDI: proporcional às cotas
-    const totalCDI = (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0);
-    const _bonusCDI = (totalCDI * participacao) / 100;
-    
-    // Bônus Juros por Atraso: proporcional às cotas
-    const totalJurosAtrasoGeral = (juros_atraso || []).reduce((s, j) => s + Number(j.valor_juros || 0), 0);
-    const _bonusJurosAtraso = (totalJurosAtrasoGeral * participacao) / 100;
-    
-    // Calcular juros SEPARADOS usando tabela juros_emprestimo
-    const jurosEmprestimoList = juros_emprestimo || [];
-    
-    let _juros60 = 0;
-    let _juros40 = 0;
-    let _jurosCaixinha = 0;
-    
-    jurosEmprestimoList.forEach(j => {
-      const valorJuros = Number(j.valor_juros || 0);
-      const modalidade = j.modalidade || 'normal';
-      
-      if (modalidade === 'caixinha') {
-        _jurosCaixinha += (valorJuros * participacao) / 100;
-      } else {
-        if (j.cotista_id === cotista?.id) {
-          _juros60 += valorJuros * 0.6;
-        }
-        _juros40 += (valorJuros * 0.4 * participacao) / 100;
+    if (modalidade === 'caixinha') {
+      jurosCaixinha += (valorJuros * participacao) / 100;
+    } else {
+      if (j.cotista_id === cotista?.id) {
+        juros60 += valorJuros * 0.6;
       }
-    });
-    
-    const _jurosRecebidos = _juros60 + _juros40 + _jurosCaixinha;
-    const _investido = getInvestidoByCotista(cotista?.id);
-    const _saldoFinal = _investido + _jurosRecebidos + _bonusRifas + _bonusCDI + _bonusJurosAtraso;
-    
-    return {
-      bonusRifas: _bonusRifas,
-      bonusCDI: _bonusCDI,
-      bonusJurosAtraso: _bonusJurosAtraso,
-      juros60: _juros60,
-      juros40: _juros40,
-      jurosCaixinha: _jurosCaixinha,
-      jurosRecebidos: _jurosRecebidos,
-      saldoFinal: _saldoFinal
-    };
-  }, [cotista?.id, cotistas, mensalidades, cdi, juros_atraso, juros_emprestimo, rifaSorteios, participacao]);
+      juros40 += (valorJuros * 0.4 * participacao) / 100;
+    }
+  });
+  
+  const jurosRecebidos = juros60 + juros40 + jurosCaixinha;
+  const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI + bonusJurosAtraso;
   
   // Cálculo do valor do empréstimo solicitado
   const valorEmprestimo = parseFloat(solicitacao.valor) || 0;

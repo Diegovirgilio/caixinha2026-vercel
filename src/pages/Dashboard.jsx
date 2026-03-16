@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   DollarSign, TrendingUp, Users, Calendar, PiggyBank, 
   AlertCircle, CheckCircle, Clock, ArrowUpRight, ArrowDownRight, Wallet
@@ -47,56 +47,38 @@ const Dashboard = () => {
   // Inclui: investido + juros emp + juros atraso + rifas pagas + CDI
   const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
   
-  // ===== SALDO EM CONTA (Caixa Real) - memoizado =====
-  const saldoCalc = useMemo(() => {
-    const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-    
-    // Entradas (+)
-    const mensalidadesPagas = Object.values(mensalidades || {}).flat()
-      .filter(m => !adminIds.includes(m.cotista_id))
-      .filter(m => m.status === 'pago' || m.status === 'parcial')
-      .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
-    
-    const rifasPagas = Object.values(mensalidades || {}).flat()
-      .filter(m => !adminIds.includes(m.cotista_id))
-      .filter(m => m.status === 'pago' || m.status === 'parcial')
-      .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-    
-    const jurosEmprestimosRecebidos = (emprestimos || [])
-      .filter(e => !adminIds.includes(e.cotista_id))
-      .filter(e => e.status === 'pago')
-      .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-    
-    const totalJurosAtraso = (juros_atraso || [])
-      .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
-    
-    const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
-    
-    // Saídas (-)
-    const emprestimosAtivos = (emprestimos || [])
-      .filter(e => !adminIds.includes(e.cotista_id))
-      .filter(e => e.status === 'ativo')
-      .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-    
-    const premiosRifaPagos = (rifaSorteios || [])
-      .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
-    
-    const saldoEmConta = mensalidadesPagas + rifasPagas + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
-    
-    return {
-      adminIds,
-      mensalidadesPagas,
-      rifasPagas,
-      jurosEmprestimosRecebidos,
-      totalJurosAtraso,
-      cdiAcumulado,
-      emprestimosAtivos,
-      premiosRifaPagos,
-      saldoEmConta
-    };
-  }, [cotistas, mensalidades, emprestimos, juros_atraso, cdi, rifaSorteios]);
+  // ===== SALDO EM CONTA (Caixa Real) =====
+  const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
   
-  const { mensalidadesPagas, rifasPagas, jurosEmprestimosRecebidos, totalJurosAtraso, cdiAcumulado, emprestimosAtivos, premiosRifaPagos, saldoEmConta } = saldoCalc;
+  const mensalidadesPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => !adminIds.includes(m.cotista_id))
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+  
+  const rifasPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => !adminIds.includes(m.cotista_id))
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  const jurosEmprestimosRecebidos = (emprestimos || [])
+    .filter(e => !adminIds.includes(e.cotista_id))
+    .filter(e => e.status === 'pago')
+    .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
+  
+  const totalJurosAtraso = (juros_atraso || [])
+    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+  
+  const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
+  
+  const emprestimosAtivos = (emprestimos || [])
+    .filter(e => !adminIds.includes(e.cotista_id))
+    .filter(e => e.status === 'ativo')
+    .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+  
+  const premiosRifaPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+  
+  const saldoEmConta = mensalidadesPagas + rifasPagas + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
   
   // Empréstimos pendentes de aprovação (excluindo admins)
   const emprestimosPendentes = (emprestimos || []).filter(e => {
