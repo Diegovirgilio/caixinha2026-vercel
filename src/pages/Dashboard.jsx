@@ -42,44 +42,44 @@ const Dashboard = () => {
   }, [cotistas, emprestimos, rifas, cdi]);
 
   const totalCotas = resumo?.totalCotas || totalCotasCalc;
-  
-  // Patrimônio Total = tudo que a caixinha acumulou (sem subtrair empréstimos ativos)
-  // Inclui: investido + juros emp + juros atraso + rifas pagas + CDI
-  const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
-  
+
   // ===== SALDO EM CONTA (Caixa Real) =====
   const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-  
+
   const mensalidadesPagas = Object.values(mensalidades || {}).flat()
     .filter(m => !adminIds.includes(m.cotista_id))
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
-  
+
   const rifasPagas = Object.values(mensalidades || {}).flat()
     .filter(m => !adminIds.includes(m.cotista_id))
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-  
+
   const jurosEmprestimosRecebidos = (emprestimos || [])
     .filter(e => !adminIds.includes(e.cotista_id))
     .filter(e => e.status === 'pago')
     .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-  
+
+  // IMPORTANTE: declarado antes de patrimonioTotal para evitar TDZ
   const totalJurosAtraso = (juros_atraso || [])
     .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
-  
+
   const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
-  
+
   const emprestimosAtivos = (emprestimos || [])
     .filter(e => !adminIds.includes(e.cotista_id))
     .filter(e => e.status === 'ativo')
     .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-  
+
   const premiosRifaPagos = (rifaSorteios || [])
     .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
-  
+
+  // Patrimônio Total — usa totalJurosAtraso já declarado acima
+  const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
+
   const saldoEmConta = mensalidadesPagas + rifasPagas + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
-  
+
   // Empréstimos pendentes de aprovação (excluindo admins)
   const emprestimosPendentes = (emprestimos || []).filter(e => {
     const cotistaEmprestimo = (cotistas || []).find(c => c.id === e.cotista_id);
@@ -174,13 +174,14 @@ const Dashboard = () => {
           value={formatCurrency(resumo?.totalCDI || 0)}
           icon={TrendingUp}
           color="from-green-500 to-green-600"
+          subtext="Rendimento acumulado"
         />
         <StatCard
-          title="Rifas"
+          title="Rifas Arrecadadas"
           value={formatCurrency(resumo?.totalRifas || 0)}
           icon={PiggyBank}
           color="from-purple-500 to-purple-600"
-          subtext={`${rifas.length} rifas realizadas`}
+          subtext="Total arrecadado"
         />
         <StatCard
           title="Empréstimos Ativos"
