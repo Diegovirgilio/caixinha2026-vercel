@@ -18,7 +18,7 @@ const Mensalidades = () => {
   const [mesSelecionado, setMesSelecionado] = useState(mesAtual);
   const [anoSelecionado, setAnoSelecionado] = useState(anoAtual);
   const [search, setSearch] = useState('');
-  const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [filtroStatus, setFiltroStatus] = useState('pendente');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState('pagamento'); // 'pagamento', 'editar', 'adicionar'

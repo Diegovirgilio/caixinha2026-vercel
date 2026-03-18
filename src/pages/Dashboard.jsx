@@ -17,44 +17,27 @@ const Dashboard = () => {
   const apenasContistas = (cotistas || []).filter(c => !c.is_admin);
   const totalCotasCalc = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
-  useEffect(() => {
-    const loadResumo = async () => {
-      try {
-        const data = await dashboardApi.getResumoGeral();
-        setResumo(data);
-      } catch (error) {
-        console.error('Erro ao carregar resumo:', error);
-        // Calcular localmente se falhar (excluindo admins)
-        setResumo({
-          totalCotas: totalCotasCalc,
-          totalCotistas: apenasContistas.length,
-          totalInvestido: getTotalInvestido(),
-          totalEmprestimosAtivos: (emprestimos || []).filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
-          totalJuros: (emprestimos || []).filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
-          totalRifas: (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0),
-          totalCDI: (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0)
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadResumo();
-  }, [cotistas, emprestimos, rifas, cdi]);
-
-  const totalCotas = resumo?.totalCotas || totalCotasCalc;
-
-  // ===== SALDO EM CONTA (Caixa Real) =====
+  // IDs dos admins (usado em vários cálculos)
   const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
 
-  const mensalidadesPagas = Object.values(mensalidades || {}).flat()
-    .filter(m => !adminIds.includes(m.cotista_id))
+  // ===== TODAS AS MENSALIDADES (excluindo admins) =====
+  const todasMensalidades = Object.values(mensalidades || {}).flat()
+    .filter(m => !adminIds.includes(m.cotista_id));
+
+  const mensalidadesPagas = todasMensalidades
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
 
-  const rifasPagas = Object.values(mensalidades || {}).flat()
-    .filter(m => !adminIds.includes(m.cotista_id))
+  // ===== RIFAS: lidas exclusivamente do campo valor_rifa das mensalidades =====
+  const rifasDasMensalidades = todasMensalidades
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+
+  const premiosRifaPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+
+  // Rifas líquidas = arrecadado - prêmios pagos
+  const rifasLiquidas = rifasDasMensalidades - premiosRifaPagos;
 
   const jurosEmprestimosRecebidos = (emprestimos || [])
     .filter(e => !adminIds.includes(e.cotista_id))
@@ -72,13 +55,39 @@ const Dashboard = () => {
     .filter(e => e.status === 'ativo')
     .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
 
-  const premiosRifaPagos = (rifaSorteios || [])
-    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
+  // ===== SALDO EM CONTA (Caixa Real) =====
+  const saldoEmConta = mensalidadesPagas + rifasDasMensalidades + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
 
-  // Patrimônio Total — usa totalJurosAtraso já declarado acima
-  const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
+  useEffect(() => {
+    const loadResumo = async () => {
+      try {
+        const data = await dashboardApi.getResumoGeral();
+        setResumo(data);
+      } catch (error) {
+        console.error('Erro ao carregar resumo:', error);
+        setResumo({
+          totalCotas: totalCotasCalc,
+          totalCotistas: apenasContistas.length,
+          totalInvestido: mensalidadesPagas,
+          totalEmprestimosAtivos: emprestimosAtivos,
+          totalJuros: jurosEmprestimosRecebidos,
+          totalRifas: rifasLiquidas,
+          totalCDI: cdiAcumulado
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadResumo();
+  }, [cotistas, emprestimos, cdi, mensalidades, rifaSorteios]);
 
-  const saldoEmConta = mensalidadesPagas + rifasPagas + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
+  const totalCotas = resumo?.totalCotas || totalCotasCalc;
+  const totalInvestido = resumo?.totalInvestido || mensalidadesPagas;
+  const totalJurosEmp  = resumo?.totalJuros    || jurosEmprestimosRecebidos;
+
+  // ===== PATRIMÔNIO TOTAL =====
+  // Investido + Juros quitados + Rifas líquidas (já descontando prêmios) + CDI + Juros atraso
+  const patrimonioTotal = totalInvestido + totalJurosEmp + rifasLiquidas + cdiAcumulado + totalJurosAtraso;
 
   // Empréstimos pendentes de aprovação (excluindo admins)
   const emprestimosPendentes = (emprestimos || []).filter(e => {
@@ -150,7 +159,7 @@ const Dashboard = () => {
           </div>
           <div className="text-right text-sm opacity-80 space-y-1">
             <p>+ Mensalidades: {formatCurrency(mensalidadesPagas)}</p>
-            <p>+ Rifas: {formatCurrency(rifasPagas)}</p>
+            <p>+ Rifas: {formatCurrency(rifasDasMensalidades)}</p>
             <p>+ Juros empréstimos: {formatCurrency(jurosEmprestimosRecebidos)}</p>
             {totalJurosAtraso > 0 && <p>+ Juros atraso: {formatCurrency(totalJurosAtraso)}</p>}
             {cdiAcumulado > 0 && <p>+ CDI: {formatCurrency(cdiAcumulado)}</p>}
@@ -164,31 +173,33 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Total Investido"
-          value={formatCurrency(resumo?.totalInvestido || 0)}
+          value={formatCurrency(totalInvestido)}
           icon={DollarSign}
           color="from-blue-500 to-blue-600"
           subtext={`${totalCotas} cotas`}
         />
         <StatCard
           title="CDI Acumulado"
-          value={formatCurrency(resumo?.totalCDI || 0)}
+          value={formatCurrency(cdiAcumulado)}
           icon={TrendingUp}
           color="from-green-500 to-green-600"
           subtext="Rendimento acumulado"
         />
         <StatCard
-          title="Rifas Arrecadadas"
-          value={formatCurrency(resumo?.totalRifas || 0)}
+          title="Rifas (líquido)"
+          value={formatCurrency(rifasLiquidas)}
           icon={PiggyBank}
           color="from-purple-500 to-purple-600"
-          subtext="Total arrecadado"
+          subtext={premiosRifaPagos > 0
+            ? `- ${formatCurrency(premiosRifaPagos)} prêmios`
+            : `${formatCurrency(rifasDasMensalidades)} arrecadado`}
         />
         <StatCard
           title="Empréstimos Ativos"
-          value={formatCurrency(resumo?.totalEmprestimosAtivos || 0)}
+          value={formatCurrency(emprestimosAtivos)}
           icon={Calendar}
           color="from-orange-500 to-orange-600"
-          subtext={`${emprestimos.filter(e => e.status === 'ativo').length} em aberto`}
+          subtext={`${(emprestimos || []).filter(e => e.status === 'ativo').length} em aberto`}
         />
       </div>
 
@@ -206,7 +217,7 @@ const Dashboard = () => {
           </div>
           <div className="mt-3 space-y-2">
             {emprestimosAtrasados.map(emp => {
-              const cotistaEmp = cotistas.find(c => c.id === emp.cotista_id);
+              const cotistaEmp = (cotistas || []).find(c => c.id === emp.cotista_id);
               const vencimento = new Date(emp.data_vencimento);
               const diasAtraso = Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24));
               const jurosAtraso = Number(emp.valor_emprestimo) * (diasAtraso * 0.01);
@@ -260,13 +271,13 @@ const Dashboard = () => {
             </div>
             <div>
               <p className="text-sm text-gray-500">Juros Arrecadados</p>
-              <p className="text-xl font-bold text-gray-800">{formatCurrency(resumo?.totalJuros || 0)}</p>
+              <p className="text-xl font-bold text-gray-800">{formatCurrency(totalJurosEmp)}</p>
             </div>
           </div>
           <div className="space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Empréstimos Quitados</span>
-              <span className="font-medium">{emprestimos.filter(e => e.status === 'pago').length}</span>
+              <span className="font-medium">{(emprestimos || []).filter(e => e.status === 'pago').length}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-gray-500">Taxa À Vista</span>
