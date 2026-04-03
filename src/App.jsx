@@ -24,7 +24,7 @@ import Auditoria from './pages/Auditoria';
 
 import { CONFIG } from './utils/constants';
 
-// ==================== MODAL PIX ====================
+// Modal PIX
 const ModalPix = ({ onClose, configuracoes }) => {
   const [copiado, setCopiado] = useState(false);
   const pixChave = configuracoes?.pix_chave || '';
@@ -73,7 +73,7 @@ const ModalPix = ({ onClose, configuracoes }) => {
   );
 };
 
-// ==================== MODAL NOTIFICAÇÕES ====================
+// Modal Notificações Pendentes
 const ModalNotificacoes = ({ onClose, emprestimos, comprovantes, onNavigate }) => {
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
@@ -138,7 +138,7 @@ const ModalNotificacoes = ({ onClose, emprestimos, comprovantes, onNavigate }) =
   );
 };
 
-// ==================== MODAL TROCAR SENHA ====================
+// Modal Trocar Senha
 const ModalTrocarSenha = ({ onClose }) => {
   const [senhaAtual, setSenhaAtual] = useState('');
   const [novaSenha, setNovaSenha] = useState('');
@@ -254,40 +254,8 @@ const ModalTrocarSenha = ({ onClose }) => {
   );
 };
 
-// ==================== TOAST COMPONENT ====================
-// IMPORTANTE: declarado ANTES do App para evitar TDZ no bundle
-const Toast = () => {
-  const { toast, hideToast } = useUIStore();
-  
-  if (!toast) return null;
-  
-  const cores = {
-    success: 'bg-green-500',
-    error: 'bg-red-500',
-    info: 'bg-blue-500',
-    warning: 'bg-amber-500'
-  };
-  
-  const icones = {
-    success: <CheckCircle size={20} />,
-    error: <AlertCircle size={20} />,
-    info: <AlertCircle size={20} />,
-    warning: <AlertCircle size={20} />
-  };
-  
-  return (
-    <div className={`fixed bottom-6 right-6 z-[9999] ${cores[toast.tipo] || cores.info} text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-fadeIn max-w-sm`}>
-      {icones[toast.tipo]}
-      <span className="text-sm font-medium flex-1">{toast.mensagem}</span>
-      <button onClick={hideToast} className="p-1 hover:bg-white/20 rounded-lg">
-        <X size={16} />
-      </button>
-    </div>
-  );
-};
-
-// ==================== APP ====================
 const App = () => {
+  // ==================== TODOS OS HOOKS PRIMEIRO ====================
   const { isAuthenticated, cotista, logout, checkAuth } = useAuthStore();
   const { loadAllData, cotistas, configuracoes, isLoading: dataLoading } = useAppStore();
   const { currentTab, setCurrentTab, showPixModal, setShowPixModal, showChangePasswordModal, setShowChangePasswordModal } = useUIStore();
@@ -325,14 +293,19 @@ const App = () => {
   useEffect(() => {
     const init = async () => {
       setAppLoading(true);
+      
+      // Verificar conexão com Supabase
       const connected = await checkConnection();
       setIsOnline(connected);
       setConnectionError(!connected);
+      
       if (connected) {
         await checkAuth();
       }
+      
       setAppLoading(false);
     };
+
     init();
   }, []);
 
@@ -350,6 +323,9 @@ const App = () => {
     }
   }, [cotista, currentTab, setCurrentTab]);
 
+  // ==================== CONFIGURAÇÕES ====================
+
+  // Pegar número de comprovantes e empréstimos pendentes
   const { comprovantes_pendentes, emprestimos_pendentes } = useAppStore();
 
   // Effect 4: Mostrar notificações para admin
@@ -363,6 +339,7 @@ const App = () => {
     }
   }, [cotista, comprovantes_pendentes, emprestimos_pendentes, notificacoesChecked, dataLoading]);
 
+  // Navegação
   const adminTabs = [
     { id: 'dashboard', label: 'Dashboard', icon: TrendingUp },
     { id: 'cotistas', label: 'Cotistas', icon: Users },
@@ -383,22 +360,37 @@ const App = () => {
   const tabs = cotista?.is_admin ? adminTabs : userTabs;
   const totalCotas = (cotistas || []).reduce((sum, c) => sum + (c.cotas || 0), 0);
 
+  // Renderizar conteúdo
   const renderContent = () => {
     switch (currentTab) {
-      case 'dashboard':     return <Dashboard />;
-      case 'minha-area':    return <UserArea />;
-      case 'cotistas':      return <Cotistas />;
-      case 'mensalidades':  return <Mensalidades />;
-      case 'emprestimos':   return <Emprestimos />;
-      case 'comprovantes':  return <Comprovantes />;
-      case 'rifas':         return <Rifas />;
-      case 'cdi':           return <RifasCdi />;
-      case 'auditoria':     return <Auditoria />;
-      case 'relatorio':     return <Relatorio />;
-      case 'gerenciamento': return <Gerenciamento />;
-      default:              return <Dashboard />;
+      case 'dashboard':
+        return <Dashboard />;
+      case 'minha-area':
+        return <UserArea />;
+      case 'cotistas':
+        return <Cotistas />;
+      case 'mensalidades':
+        return <Mensalidades />;
+      case 'emprestimos':
+        return <Emprestimos />;
+      case 'comprovantes':
+        return <Comprovantes />;
+      case 'rifas':
+        return <Rifas />;
+      case 'cdi':
+        return <RifasCdi />;
+      case 'auditoria':
+        return <Auditoria />;
+      case 'relatorio':
+        return <Relatorio />;
+      case 'gerenciamento':
+        return <Gerenciamento />;
+      default:
+        return <Dashboard />;
     }
   };
+
+  // ==================== RENDERS CONDICIONAIS ====================
 
   // Tela de carregamento
   if (appLoading) {
@@ -446,6 +438,7 @@ const App = () => {
     return <LoginRegister />;
   }
 
+  // ==================== RENDER PRINCIPAL ====================
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -487,9 +480,9 @@ const App = () => {
                 <div className="w-8 h-8 sm:w-10 sm:h-10 bg-white/20 rounded-full flex items-center justify-center text-sm sm:text-lg font-bold flex-shrink-0">
                   {cotista?.nome?.charAt(0)}
                 </div>
-                <button
-                  onClick={() => setShowChangePasswordModal(true)}
-                  className="p-1.5 sm:p-2 hover:bg-white/10 rounded-lg hidden sm:block"
+                <button 
+                  onClick={() => setShowChangePasswordModal(true)} 
+                  className="p-1.5 sm:p-2 hover:bg-white/10 rounded-lg hidden sm:block" 
                   title="Trocar Senha"
                 >
                   <Key size={20} />
@@ -554,14 +547,14 @@ const App = () => {
 
       {/* Modal PIX */}
       {showPixModal && <ModalPix onClose={() => setShowPixModal(false)} configuracoes={configuracoes} />}
-
+      
       {/* Modal Trocar Senha */}
       {showChangePasswordModal && <ModalTrocarSenha onClose={() => setShowChangePasswordModal(false)} />}
 
       {/* Modal Notificações Pendentes */}
       {showNotificacoesModal && (
-        <ModalNotificacoes
-          onClose={() => setShowNotificacoesModal(false)}
+        <ModalNotificacoes 
+          onClose={() => setShowNotificacoesModal(false)} 
           emprestimos={emprestimos_pendentes}
           comprovantes={comprovantes_pendentes}
           onNavigate={setCurrentTab}
@@ -600,6 +593,37 @@ const App = () => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+// ==================== TOAST COMPONENT ====================
+const Toast = () => {
+  const { toast, hideToast } = useUIStore();
+  
+  if (!toast) return null;
+  
+  const cores = {
+    success: 'bg-green-500',
+    error: 'bg-red-500',
+    info: 'bg-blue-500',
+    warning: 'bg-amber-500'
+  };
+  
+  const icones = {
+    success: <CheckCircle size={20} />,
+    error: <AlertCircle size={20} />,
+    info: <AlertCircle size={20} />,
+    warning: <AlertCircle size={20} />
+  };
+  
+  return (
+    <div className={`fixed bottom-6 right-6 z-[9999] ${cores[toast.tipo] || cores.info} text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3 animate-fadeIn max-w-sm`}>
+      {icones[toast.tipo]}
+      <span className="text-sm font-medium flex-1">{toast.mensagem}</span>
+      <button onClick={hideToast} className="p-1 hover:bg-white/20 rounded-lg">
+        <X size={16} />
+      </button>
     </div>
   );
 };

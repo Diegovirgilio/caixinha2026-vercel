@@ -2,13 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, TrendingUp, Clock, CheckCircle, AlertCircle,
   Plus, Send, Key, PiggyBank, Calendar, FileText, Upload,
-  X, Loader2, Image, Camera, Gift, Hash, Trophy, AlertTriangle
+  X, Loader2, Image, Camera, Gift, Hash, Trophy, AlertTriangle,
+  Copy
 } from 'lucide-react';
 import { useAuthStore, useAppStore, useUIStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
 import { emprestimosApi, mensalidadesApi } from '../services/api';
 import { formatCurrency, formatPercent, formatMesReferencia } from '../utils/formatters';
 import { STATUS_MENSALIDADE_COLORS, STATUS_EMPRESTIMO_COLORS, STATUS_EMPRESTIMO_LABELS } from '../utils/constants';
+import { gerarPixMensalidade, gerarPixEmprestimo } from '../utils/pix';
 
 const UserArea = () => {
   const { cotista } = useAuthStore();
@@ -31,11 +33,68 @@ const UserArea = () => {
   const [pagamentoEmprestimo, setPagamentoEmprestimo] = useState({ tipo: 'quitacao', valorParcial: '', arquivo: null });
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+  const [showPixCopiaCola, setShowPixCopiaCola] = useState(false);
+  const [pixData, setPixData] = useState({ codigo: '', valor: 0, descricao: '' });
+  const [pixCopiado, setPixCopiado] = useState(false);
 
   // Função para mostrar erro em pop-up
   const showError = (message) => {
     setErrorMessage(message);
     setShowErrorModal(true);
+  };
+
+  // Gerar PIX Copia e Cola para mensalidade
+  const openPixMensalidade = (mensalidade, valorTotal) => {
+    const codigo = gerarPixMensalidade({
+      configuracoes,
+      cotista,
+      mesReferencia: mensalidade.mes_referencia,
+      valorTotal
+    });
+    
+    if (!codigo) {
+      showError('Chave PIX não configurada. Contate o administrador.');
+      return;
+    }
+    
+    setPixData({
+      codigo,
+      valor: valorTotal,
+      descricao: `Mensalidade ${formatMesReferencia(mensalidade.mes_referencia)}`
+    });
+    setPixCopiado(false);
+    setShowPixCopiaCola(true);
+  };
+
+  // Gerar PIX Copia e Cola para empréstimo
+  const openPixEmprestimo = (emprestimo, valorTotal) => {
+    const codigo = gerarPixEmprestimo({
+      configuracoes,
+      cotista,
+      emprestimoId: emprestimo.id,
+      valorTotal
+    });
+    
+    if (!codigo) {
+      showError('Chave PIX não configurada. Contate o administrador.');
+      return;
+    }
+    
+    setPixData({
+      codigo,
+      valor: valorTotal,
+      descricao: `Empréstimo - ${formatCurrency(emprestimo.valor_emprestimo)}`
+    });
+    setPixCopiado(false);
+    setShowPixCopiaCola(true);
+  };
+
+  // Copiar código PIX
+  const copiarPixCode = () => {
+    navigator.clipboard.writeText(pixData.codigo).then(() => {
+      setPixCopiado(true);
+      setTimeout(() => setPixCopiado(false), 3000);
+    });
   };
 
   useEffect(() => {
@@ -524,7 +583,29 @@ const UserArea = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_pago)}</td>
                     <td className="px-4 py-3 text-center"><span className={`px-2 py-1 text-xs rounded-full ${STATUS_MENSALIDADE_COLORS[m.status]}`}>{m.status === 'pago' ? '✓ Pago' : m.status === 'parcial' ? '◐ Parcial' : '○ Pendente'}</span></td>
-                    <td className="px-4 py-3 text-center">{m.status !== 'pago' && (temComprovantePendente('mensalidade', m.id) ? <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span> : <button onClick={() => openComprovanteModal('mensalidade', m)} className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"><Upload size={14} />Comprovante</button>)}</td>
+                    <td className="px-4 py-3 text-center">
+                      {m.status !== 'pago' && (
+                        temComprovantePendente('mensalidade', m.id) ? (
+                          <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1">
+                            <button 
+                              onClick={() => openPixMensalidade(m, valorTotal - (m.valor_pago || 0))}
+                              className="text-xs bg-teal-600 text-white px-2 py-1 rounded hover:bg-teal-700 flex items-center gap-1"
+                              title="PIX com valor"
+                            >
+                              <Copy size={14} />PIX
+                            </button>
+                            <button 
+                              onClick={() => openComprovanteModal('mensalidade', m)} 
+                              className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"
+                            >
+                              <Upload size={14} />Compr.
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -1049,6 +1130,69 @@ const UserArea = () => {
               >
                 {enviando ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
                 {enviando ? 'Enviando...' : 'Enviar Comprovante'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal PIX Copia e Cola */}
+      {showPixCopiaCola && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="bg-gradient-to-r from-teal-500 to-green-500 p-6 text-center">
+              <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center mx-auto mb-3">
+                <DollarSign className="text-white" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white">PIX Copia e Cola</h3>
+              <p className="text-white/80 text-sm mt-1">{pixData.descricao}</p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="text-center">
+                <p className="text-sm text-gray-500">Valor a pagar</p>
+                <p className="text-3xl font-bold text-gray-800">{formatCurrency(pixData.valor)}</p>
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="text-xs text-gray-500 mb-2">Código PIX (clique para copiar)</p>
+                <div 
+                  onClick={copiarPixCode}
+                  className="bg-white p-3 rounded border border-gray-200 cursor-pointer hover:bg-blue-50 transition-colors"
+                >
+                  <p className="text-xs font-mono text-gray-700 break-all leading-relaxed select-all">
+                    {pixData.codigo}
+                  </p>
+                </div>
+              </div>
+              
+              <button
+                onClick={copiarPixCode}
+                className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all ${
+                  pixCopiado 
+                    ? 'bg-green-500 text-white' 
+                    : 'bg-gradient-to-r from-teal-500 to-green-500 text-white hover:from-teal-600 hover:to-green-600'
+                }`}
+              >
+                {pixCopiado ? (
+                  <><CheckCircle size={20} />Copiado!</>
+                ) : (
+                  <><Copy size={20} />Copiar Código PIX</>
+                )}
+              </button>
+              
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <p className="text-xs text-blue-700">
+                  <strong>Como usar:</strong> Copie o código acima, abra o app do seu banco, 
+                  escolha "PIX Copia e Cola" e cole. O valor já estará preenchido.
+                </p>
+              </div>
+              
+              <button 
+                onClick={() => setShowPixCopiaCola(false)} 
+                className="w-full py-2 text-gray-600 hover:text-gray-800"
+              >
+                Fechar
               </button>
             </div>
           </div>

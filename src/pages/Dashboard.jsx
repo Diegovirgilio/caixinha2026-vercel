@@ -17,47 +17,6 @@ const Dashboard = () => {
   const apenasContistas = (cotistas || []).filter(c => !c.is_admin);
   const totalCotasCalc = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
-  // IDs dos admins (usado em vários cálculos)
-  const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-
-  // ===== TODAS AS MENSALIDADES (excluindo admins) =====
-  const todasMensalidades = Object.values(mensalidades || {}).flat()
-    .filter(m => !adminIds.includes(m.cotista_id));
-
-  const mensalidadesPagas = todasMensalidades
-    .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
-
-  // ===== RIFAS: lidas exclusivamente do campo valor_rifa das mensalidades =====
-  const rifasDasMensalidades = todasMensalidades
-    .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-
-  const premiosRifaPagos = (rifaSorteios || [])
-    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
-
-  // Rifas líquidas = arrecadado - prêmios pagos
-  const rifasLiquidas = rifasDasMensalidades - premiosRifaPagos;
-
-  const jurosEmprestimosRecebidos = (emprestimos || [])
-    .filter(e => !adminIds.includes(e.cotista_id))
-    .filter(e => e.status === 'pago')
-    .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-
-  // IMPORTANTE: declarado antes de patrimonioTotal para evitar TDZ
-  const totalJurosAtraso = (juros_atraso || [])
-    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
-
-  const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
-
-  const emprestimosAtivos = (emprestimos || [])
-    .filter(e => !adminIds.includes(e.cotista_id))
-    .filter(e => e.status === 'ativo')
-    .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-
-  // ===== SALDO EM CONTA (Caixa Real) =====
-  const saldoEmConta = mensalidadesPagas + rifasDasMensalidades + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
-
   useEffect(() => {
     const loadResumo = async () => {
       try {
@@ -65,30 +24,63 @@ const Dashboard = () => {
         setResumo(data);
       } catch (error) {
         console.error('Erro ao carregar resumo:', error);
+        // Calcular localmente se falhar (excluindo admins)
         setResumo({
           totalCotas: totalCotasCalc,
           totalCotistas: apenasContistas.length,
-          totalInvestido: mensalidadesPagas,
-          totalEmprestimosAtivos: emprestimosAtivos,
-          totalJuros: jurosEmprestimosRecebidos,
-          totalRifas: rifasLiquidas,
-          totalCDI: cdiAcumulado
+          totalInvestido: getTotalInvestido(),
+          totalEmprestimosAtivos: (emprestimos || []).filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
+          totalJuros: (emprestimos || []).filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
+          totalRifas: (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0),
+          totalCDI: (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0)
         });
       } finally {
         setLoading(false);
       }
     };
     loadResumo();
-  }, [cotistas, emprestimos, cdi, mensalidades, rifaSorteios]);
+  }, [cotistas, emprestimos, rifas, cdi]);
 
   const totalCotas = resumo?.totalCotas || totalCotasCalc;
-  const totalInvestido = resumo?.totalInvestido || mensalidadesPagas;
-  const totalJurosEmp  = resumo?.totalJuros    || jurosEmprestimosRecebidos;
+  
+  // ===== CÁLCULOS AUXILIARES (Movidos para antes do uso) =====
+  const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
+  
+  const totalJurosAtraso = (juros_atraso || [])
+    .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
 
-  // ===== PATRIMÔNIO TOTAL =====
-  // Investido + Juros quitados + Rifas líquidas (já descontando prêmios) + CDI + Juros atraso
-  const patrimonioTotal = totalInvestido + totalJurosEmp + rifasLiquidas + cdiAcumulado + totalJurosAtraso;
+  const mensalidadesPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => !adminIds.includes(m.cotista_id))
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+  
+  const rifasPagas = Object.values(mensalidades || {}).flat()
+    .filter(m => !adminIds.includes(m.cotista_id))
+    .filter(m => m.status === 'pago' || m.status === 'parcial')
+    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
+  
+  const jurosEmprestimosRecebidos = (emprestimos || [])
+    .filter(e => !adminIds.includes(e.cotista_id))
+    .filter(e => e.status === 'pago')
+    .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
+  
+  const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
+  
+  const emprestimosAtivos = (emprestimos || [])
+    .filter(e => !adminIds.includes(e.cotista_id))
+    .filter(e => e.status === 'ativo')
+    .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+  
+  const premiosRifaPagos = (rifaSorteios || [])
+    .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
 
+  // Patrimônio Total = tudo que a caixinha acumulou (sem subtrair empréstimos ativos)
+  // Inclui: investido + juros emp + juros atraso + rifas pagas + CDI
+  const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
+  
+  // ===== SALDO EM CONTA (Caixa Real) =====
+  const saldoEmConta = mensalidadesPagas + rifasPagas + jurosEmprestimosRecebidos + totalJurosAtraso + cdiAcumulado - emprestimosAtivos - premiosRifaPagos;
+  
   // Empréstimos pendentes de aprovação (excluindo admins)
   const emprestimosPendentes = (emprestimos || []).filter(e => {
     const cotistaEmprestimo = (cotistas || []).find(c => c.id === e.cotista_id);
@@ -107,18 +99,12 @@ const Dashboard = () => {
     <div className={`bg-gradient-to-br ${color} p-6 rounded-xl shadow-lg text-white`}>
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm opacity-80">{title}</p>
-          <p className="text-2xl font-bold mt-1">{value}</p>
-          {subtext && <p className="text-xs opacity-70 mt-1">{subtext}</p>}
+          <p className="text-white/80 text-sm font-medium mb-1">{title}</p>
+          <h3 className="text-2xl font-bold">{value}</h3>
+          {subtext && <p className="text-white/60 text-xs mt-2">{subtext}</p>}
         </div>
-        <div className="flex flex-col items-end">
-          <Icon className="opacity-80" size={32} />
-          {trend && (
-            <div className={`flex items-center text-xs mt-2 ${trend > 0 ? 'text-green-200' : 'text-red-200'}`}>
-              {trend > 0 ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
-              {Math.abs(trend)}%
-            </div>
-          )}
+        <div className="bg-white/20 p-3 rounded-lg">
+          <Icon size={24} className="text-white" />
         </div>
       </div>
     </div>
@@ -134,234 +120,133 @@ const Dashboard = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Cabeçalho */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-          <p className="text-gray-500">Visão geral da Caixinha 2026</p>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard Geral</h1>
+          <p className="text-gray-500">Visão consolidada da Caixinha 2026</p>
         </div>
-        <div className="text-right">
-          <p className="text-sm text-gray-500">Patrimônio Total</p>
-          <p className="text-3xl font-bold text-blue-600">{formatCurrency(patrimonioTotal)}</p>
-        </div>
-      </div>
-
-      {/* Card Saldo em Conta - Destaque */}
-      <div className="bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl shadow-lg p-6 text-white">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Wallet size={24} />
-              <p className="text-lg font-medium opacity-90">Saldo em Conta</p>
-            </div>
-            <p className="text-4xl font-bold">{formatCurrency(saldoEmConta)}</p>
-            <p className="text-sm opacity-80 mt-2">Dinheiro disponível na caixinha</p>
-          </div>
-          <div className="text-right text-sm opacity-80 space-y-1">
-            <p>+ Mensalidades: {formatCurrency(mensalidadesPagas)}</p>
-            <p>+ Rifas: {formatCurrency(rifasDasMensalidades)}</p>
-            <p>+ Juros empréstimos: {formatCurrency(jurosEmprestimosRecebidos)}</p>
-            {totalJurosAtraso > 0 && <p>+ Juros atraso: {formatCurrency(totalJurosAtraso)}</p>}
-            {cdiAcumulado > 0 && <p>+ CDI: {formatCurrency(cdiAcumulado)}</p>}
-            <p className="text-orange-200">- Empréstimos ativos: {formatCurrency(emprestimosAtivos)}</p>
-            {premiosRifaPagos > 0 && <p className="text-orange-200">- Prêmios rifa: {formatCurrency(premiosRifaPagos)}</p>}
-          </div>
+        <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-4 py-2 rounded-lg shadow-sm">
+          <Calendar size={16} />
+          <span>{hoje.toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</span>
         </div>
       </div>
 
-      {/* Cards principais */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Investido"
-          value={formatCurrency(totalInvestido)}
-          icon={DollarSign}
-          color="from-blue-500 to-blue-600"
-          subtext={`${totalCotas} cotas`}
+      {/* Cards de Destaque */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard 
+          title="Patrimônio Total" 
+          value={formatCurrency(patrimonioTotal)}
+          icon={Wallet}
+          color="from-blue-600 to-blue-700"
+          subtext="Total acumulado (incluindo empréstimos ativos)"
         />
-        <StatCard
-          title="CDI Acumulado"
-          value={formatCurrency(cdiAcumulado)}
-          icon={TrendingUp}
-          color="from-green-500 to-green-600"
-          subtext="Rendimento acumulado"
-        />
-        <StatCard
-          title="Rifas (líquido)"
-          value={formatCurrency(rifasLiquidas)}
+        <StatCard 
+          title="Saldo em Conta" 
+          value={formatCurrency(saldoEmConta)}
           icon={PiggyBank}
-          color="from-purple-500 to-purple-600"
-          subtext={premiosRifaPagos > 0
-            ? `- ${formatCurrency(premiosRifaPagos)} prêmios`
-            : `${formatCurrency(rifasDasMensalidades)} arrecadado`}
+          color="from-emerald-600 to-emerald-700"
+          subtext="Disponível para novos empréstimos"
         />
-        <StatCard
-          title="Empréstimos Ativos"
+        <StatCard 
+          title="Total em Empréstimos" 
           value={formatCurrency(emprestimosAtivos)}
-          icon={Calendar}
-          color="from-orange-500 to-orange-600"
-          subtext={`${(emprestimos || []).filter(e => e.status === 'ativo').length} em aberto`}
+          icon={ArrowUpRight}
+          color="from-amber-600 to-amber-700"
+          subtext={`${(emprestimos || []).filter(e => e.status === 'ativo').length} empréstimos ativos`}
+        />
+        <StatCard 
+          title="Total de Cotas" 
+          value={totalCotas}
+          icon={Users}
+          color="from-purple-600 to-purple-700"
+          subtext={`${apenasContistas.length} cotistas ativos`}
         />
       </div>
 
-      {/* Alerta de empréstimos em atraso */}
-      {emprestimosAtrasados.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-red-500 rounded-full flex items-center justify-center">
-              <AlertCircle className="text-white" size={20} />
-            </div>
-            <div className="flex-1">
-              <h3 className="font-bold text-red-800">⚠️ Empréstimos em Atraso</h3>
-              <p className="text-sm text-red-600">{emprestimosAtrasados.length} empréstimo(s) com vencimento ultrapassado</p>
-            </div>
-          </div>
-          <div className="mt-3 space-y-2">
-            {emprestimosAtrasados.map(emp => {
-              const cotistaEmp = (cotistas || []).find(c => c.id === emp.cotista_id);
-              const vencimento = new Date(emp.data_vencimento);
-              const diasAtraso = Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24));
-              const jurosAtraso = Number(emp.valor_emprestimo) * (diasAtraso * 0.01);
-              return (
-                <div key={emp.id} className="bg-white p-3 rounded-lg border border-red-200 flex justify-between items-center">
+      {/* Seção de Alertas e Detalhes */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Alertas */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+              <AlertCircle size={20} className="text-amber-500" />
+              Atenção Requerida
+            </h3>
+            <div className="space-y-4">
+              {emprestimosPendentes.length > 0 && (
+                <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                  <Clock className="text-amber-600 mt-0.5" size={18} />
                   <div>
-                    <p className="font-medium text-gray-800">{cotistaEmp?.nome || 'Cotista'}</p>
-                    <p className="text-sm text-gray-600">
-                      Principal: {formatCurrency(emp.valor_emprestimo)} • Venceu: {vencimento.toLocaleDateString('pt-BR')}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-red-600 font-bold">{diasAtraso} dias</p>
-                    <p className="text-xs text-red-500">+{formatCurrency(jurosAtraso)} juros</p>
+                    <p className="text-sm font-medium text-amber-900">{emprestimosPendentes.length} Empréstimos Pendentes</p>
+                    <p className="text-xs text-amber-700">Aguardando aprovação do administrador</p>
                   </div>
                 </div>
-              );
-            })}
+              )}
+              {emprestimosAtrasados.length > 0 && (
+                <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                  <AlertCircle className="text-red-600 mt-0.5" size={18} />
+                  <div>
+                    <p className="text-sm font-medium text-red-900">{emprestimosAtrasados.length} Empréstimos em Atraso</p>
+                    <p className="text-xs text-red-700">Vencimento ultrapassado</p>
+                  </div>
+                </div>
+              )}
+              {emprestimosPendentes.length === 0 && emprestimosAtrasados.length === 0 && (
+                <div className="flex items-center gap-3 p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <CheckCircle className="text-emerald-600" size={18} />
+                  <p className="text-sm font-medium text-emerald-900">Tudo em dia!</p>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* Segunda linha de cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <Users className="text-blue-600" size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Cotistas</p>
-              <p className="text-xl font-bold text-gray-800">{resumo?.totalCotistas || apenasContistas.length}</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Total de Cotas</span>
-              <span className="font-medium">{totalCotas}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Valor por Cota</span>
-              <span className="font-medium">{formatCurrency(parseFloat(configuracoes?.valor_por_cota || 50))}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
-              <TrendingUp className="text-green-600" size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Juros Arrecadados</p>
-              <p className="text-xl font-bold text-gray-800">{formatCurrency(totalJurosEmp)}</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Empréstimos Quitados</span>
-              <span className="font-medium">{(emprestimos || []).filter(e => e.status === 'pago').length}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Taxa À Vista</span>
-              <span className="font-medium">{configuracoes?.juros_vista || 20}%</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-lg">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
-              <Calendar className="text-orange-600" size={20} />
-            </div>
-            <div>
-              <p className="text-sm text-gray-500">Período</p>
-              <p className="text-xl font-bold text-gray-800">Jan - Nov 2026</p>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Meses Totais</span>
-              <span className="font-medium">11 meses</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Encerramento</span>
-              <span className="font-medium">30/11/2026</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Alertas e pendências */}
-      {emprestimosPendentes.length > 0 && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
-          <div className="flex items-center gap-3">
-            <AlertCircle className="text-yellow-600" size={24} />
-            <div>
-              <h3 className="font-semibold text-yellow-800">Ações Pendentes</h3>
-              <p className="text-sm text-yellow-700">
-                {emprestimosPendentes.length} solicitação(ões) de empréstimo aguardando aprovação
+          {/* Valor da Cota */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold mb-4">Valor da Cota</h3>
+            <div className="text-center p-4 bg-gray-50 rounded-lg">
+              <p className="text-sm text-gray-500 mb-1">Valor Atual</p>
+              <p className="text-3xl font-bold text-blue-600">
+                {formatCurrency(totalCotas > 0 ? patrimonioTotal / totalCotas : 0)}
               </p>
+              <p className="text-xs text-gray-400 mt-2">Baseado no Patrimônio Total / Total de Cotas</p>
             </div>
           </div>
         </div>
-      )}
 
-      {/* Top Cotistas */}
-      <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-        <div className="p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-800">Top 10 Cotistas</h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nome</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cotas</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Participação</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {apenasContistas
-                .sort((a, b) => b.cotas - a.cotas)
-                .slice(0, 10)
-                .map((c, idx) => (
-                  <tr key={c.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{idx + 1}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-medium text-sm">
-                          {c.nome?.charAt(0)}
-                        </div>
-                        <span className="font-medium text-gray-900">{c.nome}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-medium">{c.cotas}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatPercent((c.cotas / totalCotas) * 100)}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
+        {/* Distribuição do Patrimônio */}
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <h3 className="text-lg font-semibold mb-6">Composição do Patrimônio</h3>
+          <div className="space-y-6">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span className="text-gray-600">Investimento Inicial (Mensalidades)</span>
+                <span className="font-semibold">{formatCurrency(resumo?.totalInvestido || 0)}</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2">
+                <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${(resumo?.totalInvestido / patrimonioTotal) * 100}%` }}></div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-50">
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">Juros de Empréstimos</p>
+                <p className="text-lg font-semibold text-emerald-600">{formatCurrency(resumo?.totalJuros || 0)}</p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">Juros por Atraso</p>
+                <p className="text-lg font-semibold text-amber-600">{formatCurrency(totalJurosAtraso)}</p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">Rifas (Lucro)</p>
+                <p className="text-lg font-semibold text-purple-600">{formatCurrency(resumo?.totalRifas || 0)}</p>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 mb-1">Rendimentos CDI</p>
+                <p className="text-lg font-semibold text-blue-600">{formatCurrency(resumo?.totalCDI || 0)}</p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

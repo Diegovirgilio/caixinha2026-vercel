@@ -122,7 +122,7 @@ const Comprovantes = () => {
       diasAtraso = Math.floor((hoje - ultimoDiaMes) / (1000 * 60 * 60 * 24));
       // Buscar valor da mensalidade
       const cotistaData = cotistas.find(c => c.id === comprovante.cotista_id);
-      const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_cota || 100));
+      const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_por_cota || 50));
       multaAtraso = valorBase * 0.20; // 20% multa fixa
       jurosAtraso = valorBase * diasAtraso * 0.01; // 1% por dia
     }
@@ -822,7 +822,7 @@ const Comprovantes = () => {
                 if (!mensInfo) return null;
                 
                 const cotistaData = cotistas.find(c => c.id === selectedComprovante.cotista_id);
-                const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_cota || 100));
+                const valorBase = (cotistaData?.cotas || 1) * (parseFloat(configuracoes?.valor_por_cota || 50));
                 const valorRifa = cotistaData?.participa_rifa ? (cotistaData.cotas || 1) * 20 : 0;
                 const valorTotal = valorBase + valorRifa + mensInfo.multaAtraso + mensInfo.jurosAtraso;
                 

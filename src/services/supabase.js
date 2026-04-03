@@ -1,34 +1,33 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('❌ Credenciais do Supabase não configuradas!');
   console.error('Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no arquivo .env');
 }
 
-// Cliente Supabase — com fallback para evitar crash no bundle
-export const supabase = (supabaseUrl && supabaseAnonKey)
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: true
-      }
-    })
-  : null;
-
-export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
-
-export const checkConnection = async () => {
-  if (!supabase) {
-    console.error('Supabase não inicializado — variáveis de ambiente ausentes');
-    return false;
+// Cliente Supabase
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true
   }
+});
+
+// Variável de conveniência
+export const isSupabaseConfigured = true;
+
+// Verificar conexão
+export const checkConnection = async () => {
   try {
     const { error } = await supabase.from('configuracoes').select('count').limit(1);
-    if (error) { console.error('Erro de conexão:', error.message); return false; }
+    if (error) {
+      console.error('Erro de conexão:', error.message);
+      return false;
+    }
     console.log('✅ Conectado ao Supabase');
     return true;
   } catch (error) {

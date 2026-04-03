@@ -10,7 +10,7 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 const Emprestimos = () => {
   const { cotista } = useAuthStore();
   const { emprestimos, loadEmprestimos, cotistas, mensalidades, configuracoes } = useAppStore();
-  const [filtroStatus, setFiltroStatus] = useState('ativo');
+  const [filtroStatus, setFiltroStatus] = useState('todos');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -57,14 +57,8 @@ const Emprestimos = () => {
   const [pagamentoForm, setPagamentoForm] = useState({
     tipoPagamento: 'quitacao', // quitacao, soJuros, parcial
     valorPago: '',
-    jurosAtraso: '',
-    dataPagamento: new Date().toISOString().split('T')[0] // data real do pagamento
+    jurosAtraso: ''
   });
-
-  // Modal de Aprovação com data de vencimento editável
-  const [showAprovarModal, setShowAprovarModal] = useState(false);
-  const [aprovarEmprestimo, setAprovarEmprestimo] = useState(null);
-  const [aprovarDataVencimento, setAprovarDataVencimento] = useState('');
 
   useEffect(() => {
     loadEmprestimos();
@@ -194,8 +188,7 @@ const Emprestimos = () => {
     setPagamentoForm({
       tipoPagamento: 'quitacao',
       valorPago: String((principal + jurosQuitacao + jurosAtraso).toFixed(2)),
-      jurosAtraso: jurosAtraso > 0 ? String(jurosAtraso.toFixed(2)) : '',
-      dataPagamento: new Date().toISOString().split('T')[0] // padrão: hoje
+      jurosAtraso: jurosAtraso > 0 ? String(jurosAtraso.toFixed(2)) : ''
     });
     setError('');
     setShowPagamentoModal(true);
@@ -214,12 +207,9 @@ const Emprestimos = () => {
     let diasAtraso = 0;
     let jurosAtraso = 0;
     if (pagamentoEmprestimo.data_vencimento && pagamentoEmprestimo.status === 'ativo') {
-      // Usa a data real do pagamento informada pelo admin, não a data de hoje
-      const dataRef = pagamentoForm.dataPagamento
-        ? new Date(pagamentoForm.dataPagamento + 'T12:00:00')
-        : new Date();
+      const hoje = new Date();
       const vencimento = new Date(pagamentoEmprestimo.data_vencimento);
-      diasAtraso = Math.max(0, Math.floor((dataRef - vencimento) / (1000 * 60 * 60 * 24)));
+      diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
       jurosAtraso = principal * (diasAtraso * 0.01);
     }
     
@@ -493,34 +483,30 @@ const Emprestimos = () => {
     }
   };
 
-  const handleAprovar = (emprestimo) => {
-    // Calcular vencimento padrão: mesmo dia do mês seguinte
-    const hoje = new Date();
-    const vencimentoPadrao = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
-    setAprovarEmprestimo(emprestimo);
-    setAprovarDataVencimento(vencimentoPadrao.toISOString().split('T')[0]);
-    setShowAprovarModal(true);
-  };
+  const handleAprovar = async (emprestimo) => {
+    if (!confirm(`Aprovar empréstimo de ${formatCurrency(emprestimo.valor_total)} para ${emprestimo.cotista?.nome}?`)) {
+      return;
+    }
 
-  const handleConfirmarAprovar = async () => {
-    if (!aprovarEmprestimo) return;
     setLoading(true);
     try {
+      // Calcular vencimento: mesmo dia do mês seguinte
+      const hoje = new Date();
+      const vencimento = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
+      
       const { error: updateError } = await supabase
         .from('emprestimos')
         .update({
           status: 'ativo',
           aprovado_por: cotista.id,
           data_aprovacao: new Date().toISOString(),
-          data_vencimento: aprovarDataVencimento
+          data_vencimento: vencimento.toISOString().split('T')[0]
         })
-        .eq('id', aprovarEmprestimo.id);
+        .eq('id', emprestimo.id);
 
       if (updateError) throw updateError;
 
       await loadEmprestimos();
-      setShowAprovarModal(false);
-      setAprovarEmprestimo(null);
       setSuccess('Empréstimo aprovado com sucesso!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
@@ -1213,38 +1199,6 @@ const Emprestimos = () => {
                 </div>
               )}
 
-              {/* Data Real do Pagamento */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <label className="block text-sm font-medium text-blue-800 mb-1">
-                  📅 Data real do pagamento pelo cotista
-                </label>
-                <input
-                  type="date"
-                  value={pagamentoForm.dataPagamento}
-                  onChange={(e) => {
-                    const novaData = e.target.value;
-                    // Recalcular juros de atraso com a nova data
-                    const principal = Number(pagamentoEmprestimo.principal_restante || pagamentoEmprestimo.valor_emprestimo || 0);
-                    let novoJurosAtraso = 0;
-                    if (pagamentoEmprestimo.data_vencimento) {
-                      const dataRef = new Date(novaData + 'T12:00:00');
-                      const vencimento = new Date(pagamentoEmprestimo.data_vencimento);
-                      const dias = Math.max(0, Math.floor((dataRef - vencimento) / (1000 * 60 * 60 * 24)));
-                      novoJurosAtraso = principal * (dias * 0.01);
-                    }
-                    setPagamentoForm({
-                      ...pagamentoForm,
-                      dataPagamento: novaData,
-                      jurosAtraso: novoJurosAtraso > 0 ? String(novoJurosAtraso.toFixed(2)) : ''
-                    });
-                  }}
-                  className="w-full px-3 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
-                />
-                <p className="text-xs text-blue-600 mt-1">
-                  Altere esta data caso o cotista tenha pago antes de você registrar.
-                </p>
-              </div>
-
               {/* Tipo de Pagamento */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">Tipo de Pagamento</label>
@@ -1382,79 +1336,6 @@ const Emprestimos = () => {
               >
                 {loading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
                 {loading ? 'Registrando...' : 'Registrar Pagamento'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      {/* Modal de Aprovação com data de vencimento editável */}
-      {showAprovarModal && aprovarEmprestimo && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-800">✅ Aprovar Empréstimo</h3>
-              <button onClick={() => setShowAprovarModal(false)} className="p-1 hover:bg-gray-100 rounded">
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="p-4 space-y-4">
-              {/* Info do cotista */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold">
-                    {aprovarEmprestimo.cotista?.nome?.charAt(0)}
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-800">{aprovarEmprestimo.cotista?.nome}</p>
-                    <p className="text-sm text-gray-500">{formatCurrency(aprovarEmprestimo.valor_emprestimo)} • {aprovarEmprestimo.tipo === 'vista' ? 'À vista' : `${aprovarEmprestimo.parcelas}x`}</p>
-                  </div>
-                </div>
-                <div className="text-sm text-gray-600">
-                  <p>Solicitado em: {formatDate(aprovarEmprestimo.created_at)}</p>
-                  {aprovarEmprestimo.chave_pix && (
-                    <p className="text-blue-600 font-medium mt-1">PIX: {aprovarEmprestimo.chave_pix}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Data de vencimento editável */}
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                <label className="block text-sm font-medium text-yellow-800 mb-1">
-                  📅 Data de vencimento
-                </label>
-                <input
-                  type="date"
-                  value={aprovarDataVencimento}
-                  onChange={(e) => setAprovarDataVencimento(e.target.value)}
-                  className="w-full px-3 py-2 border border-yellow-300 rounded-lg focus:ring-2 focus:ring-yellow-500 bg-white"
-                />
-                <p className="text-xs text-yellow-700 mt-1">
-                  Padrão: 1 mês a partir de hoje. Ajuste se o cotista pagou em data diferente.
-                </p>
-              </div>
-
-              {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-lg text-sm">
-                  {error}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-3 p-4 border-t bg-gray-50">
-              <button
-                onClick={() => setShowAprovarModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleConfirmarAprovar}
-                disabled={loading || !aprovarDataVencimento}
-                className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
-                {loading ? 'Aprovando...' : 'Confirmar Aprovação'}
               </button>
             </div>
           </div>
