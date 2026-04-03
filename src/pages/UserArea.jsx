@@ -266,6 +266,22 @@ const UserArea = () => {
 
   const pagamentoCalc = calcularPagamentoEmprestimo();
 
+  // Calcular total de quitação de um empréstimo (para o PIX)
+  // Necessário calcular diretamente do emp pois pagamentoCalc depende de emprestimoSelecionado
+  const calcularTotalQuitacao = (emp) => {
+    const principal = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+    const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
+    const jurosVista = principal * (taxaVista / 100);
+    let jurosAtraso = 0;
+    if (emp.data_vencimento && emp.status === 'ativo') {
+      const hoje = new Date();
+      const vencimento = new Date(emp.data_vencimento);
+      const dias = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
+      jurosAtraso = principal * (dias * 0.01);
+    }
+    return principal + jurosVista + jurosAtraso;
+  };
+
   // Abrir modal de pagamento de empréstimo
   const openPagamentoEmprestimoModal = (emprestimo) => {
     setEmprestimoSelecionado(emprestimo);
@@ -789,13 +805,23 @@ const UserArea = () => {
                             <Clock size={14} />Aguardando aprovação
                           </span>
                         ) : (
-                          <button 
-                            onClick={() => openPagamentoEmprestimoModal(emp)} 
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 flex items-center gap-2"
-                          >
-                            <Upload size={16} />
-                            Pagar
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openPixEmprestimo(emp, calcularTotalQuitacao(emp))}
+                              className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-teal-700 flex items-center gap-2"
+                              title="PIX com valor de quitação"
+                            >
+                              <Copy size={16} />
+                              PIX
+                            </button>
+                            <button 
+                              onClick={() => openPagamentoEmprestimoModal(emp)} 
+                              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 flex items-center gap-2"
+                            >
+                              <Upload size={16} />
+                              Pagar
+                            </button>
+                          </div>
                         )
                       )}
                     </div>

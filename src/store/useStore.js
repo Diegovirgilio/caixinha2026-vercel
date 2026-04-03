@@ -912,18 +912,16 @@ export const useAppStore = create((set, get) => ({
 
   getInvestidoByCotista: (cotistaId) => {
     const { mensalidades } = get();
-    let total = 0;
-    
-    Object.values(mensalidades).forEach(mes => {
-      if (Array.isArray(mes)) {
-        const registro = mes.find(m => m.cotista_id === cotistaId);
-        if (registro) {
-          // Valor pago já inclui mensalidade + rifa (se participar)
-          total += Number(registro.valor_pago || 0);
-        }
-      }
-    });
-    return total;
+
+    // Usa valor_devido (só mensalidade, sem rifa) em meses pago/parcial
+    // Mesma lógica do ExtratoCotista.jsx — garante consistência entre admin e cotista
+    return Object.values(mensalidades)
+      .flat()
+      .filter(m =>
+        m.cotista_id === cotistaId &&
+        (m.status === 'pago' || m.status === 'parcial')
+      )
+      .reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
   },
 
   getLimiteEmprestimo: (cotistaId, modalidade = 'normal') => {
