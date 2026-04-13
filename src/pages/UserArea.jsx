@@ -232,32 +232,67 @@ const UserArea = () => {
     finally { setEnviando(false); setTimeout(() => setMensagem({ tipo: '', texto: '' }), 5000); }
   };
 
+  // ─── Calcula juros de atraso por meses completos + dias corridos ───
+  // Regra:
+  //   - O mês do vencimento sempre conta como 1 mês (30% sobre principal)
+  //   - Cada mês completo adicional que passa: +30%
+  //   - Dias corridos no mês atual: +1%/dia
+  //   - Tudo incide sobre o principal original (sem juros sobre juros)
+  const calcularJurosAtraso = (dataVencimento, principal) => {
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    const venc = new Date(dataVencimento);
+    venc.setHours(0, 0, 0, 0);
+
+    if (hoje <= venc) return { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
+
+    // O mês do vencimento já conta como 1 mês
+    let meses = 1;
+    let cursor = new Date(venc);
+
+    // Avança mês a mês enquanto o próximo mês não ultrapassar hoje
+    while (true) {
+      const proximo = new Date(cursor);
+      proximo.setMonth(proximo.getMonth() + 1);
+      if (proximo <= hoje) {
+        meses++;
+        cursor = proximo;
+      } else {
+        break;
+      }
+    }
+
+    const diasCorridos = Math.floor((hoje - cursor) / (1000 * 60 * 60 * 24));
+    const jurosAtraso = principal * (meses * 0.30 + diasCorridos * 0.01);
+
+    return { mesesAtraso: meses, diasCorridos, jurosAtraso };
+  };
+
   // Calcular valores para pagamento de empréstimo
   const calcularPagamentoEmprestimo = () => {
-    if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30, diasAtraso: 0, jurosAtraso: 0 };
+    if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30, mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
     const principal = Number(emprestimoSelecionado.principal_restante || emprestimoSelecionado.valor_emprestimo || 0);
     const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
     const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
     const jurosVista = principal * (taxaVista / 100);
     const jurosParcelado = principal * (taxaParcelado / 100);
-    
-    // Calcular juros de atraso (1% por dia)
-    let diasAtraso = 0;
-    let jurosAtraso = 0;
+
+    // Juros de atraso: meses completos + dias corridos
+    let mesesAtraso = 0, diasCorridos = 0, jurosAtraso = 0;
     if (emprestimoSelecionado.data_vencimento && emprestimoSelecionado.status === 'ativo') {
-      const hoje = new Date();
-      const vencimento = new Date(emprestimoSelecionado.data_vencimento);
-      diasAtraso = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
-      jurosAtraso = principal * (diasAtraso * 0.01); // 1% por dia
+      ({ mesesAtraso, diasCorridos, jurosAtraso } = calcularJurosAtraso(
+        emprestimoSelecionado.data_vencimento, principal
+      ));
     }
-    
+
     return {
       principal,
       taxaVista,
       taxaParcelado,
       jurosVista,
       jurosParcelado,
-      diasAtraso,
+      mesesAtraso,
+      diasCorridos,
       jurosAtraso,
       totalQuitacao: principal + jurosVista + jurosAtraso,
       totalSoJuros: jurosParcelado + jurosAtraso
@@ -266,18 +301,15 @@ const UserArea = () => {
 
   const pagamentoCalc = calcularPagamentoEmprestimo();
 
-  // Calcular total de quitação de um empréstimo (para o PIX)
-  // Necessário calcular diretamente do emp pois pagamentoCalc depende de emprestimoSelecionado
+  // Calcular total de quitação de um empréstimo (usado no botão PIX)
+  // Opera diretamente no objeto emp (independente do emprestimoSelecionado no estado)
   const calcularTotalQuitacao = (emp) => {
     const principal = Number(emp.principal_restante || emp.valor_emprestimo || 0);
     const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
     const jurosVista = principal * (taxaVista / 100);
     let jurosAtraso = 0;
     if (emp.data_vencimento && emp.status === 'ativo') {
-      const hoje = new Date();
-      const vencimento = new Date(emp.data_vencimento);
-      const dias = Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)));
-      jurosAtraso = principal * (dias * 0.01);
+      ({ jurosAtraso } = calcularJurosAtraso(emp.data_vencimento, principal));
     }
     return principal + jurosVista + jurosAtraso;
   };
@@ -355,8 +387,8 @@ const UserArea = () => {
       let observacaoTexto = `Tipo: ${pagamentoEmprestimo.tipo === 'quitacao' ? `Quitação Total (${pagamentoCalc.taxaVista}%)` : pagamentoEmprestimo.tipo === 'soJuros' ? `Só Juros (${pagamentoCalc.taxaParcelado}%)` : `Juros + Parcial (${pagamentoCalc.taxaParcelado}%)`}`;
       
       // Adicionar info de juros de atraso se houver
-      if (pagamentoCalc.diasAtraso > 0) {
-        observacaoTexto += ` | Atraso: ${pagamentoCalc.diasAtraso} dia(s) = ${formatCurrency(pagamentoCalc.jurosAtraso)}`;
+      if (pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) {
+        observacaoTexto += ` | Atraso: ${pagamentoCalc.mesesAtraso} mês(es) + ${pagamentoCalc.diasCorridos} dia(s) = ${formatCurrency(pagamentoCalc.jurosAtraso)}`;
       }
       
       // Registrar comprovante com informações do tipo de pagamento
@@ -805,23 +837,13 @@ const UserArea = () => {
                             <Clock size={14} />Aguardando aprovação
                           </span>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => openPixEmprestimo(emp, calcularTotalQuitacao(emp))}
-                              className="bg-teal-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-teal-700 flex items-center gap-2"
-                              title="PIX com valor de quitação"
-                            >
-                              <Copy size={16} />
-                              PIX
-                            </button>
-                            <button 
-                              onClick={() => openPagamentoEmprestimoModal(emp)} 
-                              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 flex items-center gap-2"
-                            >
-                              <Upload size={16} />
-                              Pagar
-                            </button>
-                          </div>
+                          <button 
+                            onClick={() => openPagamentoEmprestimoModal(emp)} 
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-green-700 flex items-center gap-2"
+                          >
+                            <Upload size={16} />
+                            Pagar
+                          </button>
                         )
                       )}
                     </div>
@@ -984,27 +1006,33 @@ const UserArea = () => {
             
             <div className="p-4 space-y-4">
               {/* Resumo do Empréstimo */}
-              <div className={`p-3 rounded-lg ${pagamentoCalc.diasAtraso > 0 ? 'bg-red-50 border border-red-200' : 'bg-orange-50'}`}>
+              <div className={`p-3 rounded-lg ${(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? 'bg-red-50 border border-red-200' : 'bg-orange-50'}`}>
                 <p className="text-sm text-gray-700">
                   <strong>Principal Restante:</strong> {formatCurrency(pagamentoCalc.principal)}
                 </p>
                 {emprestimoSelecionado?.data_vencimento && (
-                  <p className={`text-xs mt-1 ${pagamentoCalc.diasAtraso > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                  <p className={`text-xs mt-1 ${(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                     Vencimento: {new Date(emprestimoSelecionado.data_vencimento).toLocaleDateString('pt-BR')}
-                    {pagamentoCalc.diasAtraso > 0 && ` (${pagamentoCalc.diasAtraso} dia(s) em atraso)`}
+                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && ` (${pagamentoCalc.mesesAtraso} mês(es) e ${pagamentoCalc.diasCorridos} dia(s) em atraso)`}
                   </p>
                 )}
               </div>
               
               {/* Alerta de Juros de Atraso */}
-              {pagamentoCalc.diasAtraso > 0 && (
+              {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
                 <div className="bg-red-100 border border-red-300 rounded-lg p-3">
                   <p className="text-sm font-medium text-red-800 flex items-center gap-2">
                     <AlertTriangle size={16} />
-                    Juros por Atraso (1% ao dia)
+                    Juros por Atraso
                   </p>
                   <div className="mt-2 text-sm text-red-700 space-y-1">
-                    <p>{formatCurrency(pagamentoCalc.principal)} × {pagamentoCalc.diasAtraso} dias × 1% = <strong>{formatCurrency(pagamentoCalc.jurosAtraso)}</strong></p>
+                    {pagamentoCalc.mesesAtraso > 0 && (
+                      <p>{pagamentoCalc.mesesAtraso} mês(es) × 30% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.mesesAtraso * 0.30)}</strong></p>
+                    )}
+                    {pagamentoCalc.diasCorridos > 0 && (
+                      <p>{formatCurrency(pagamentoCalc.principal)} × {pagamentoCalc.diasCorridos} dia(s) × 1% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.diasCorridos * 0.01)}</strong></p>
+                    )}
+                    <p className="font-medium border-t border-red-300 pt-1">Total atraso: <strong>{formatCurrency(pagamentoCalc.jurosAtraso)}</strong></p>
                   </div>
                   <p className="text-xs text-red-600 mt-2">
                     Este valor será adicionado ao pagamento.
@@ -1029,7 +1057,7 @@ const UserArea = () => {
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">Quitação Total ({pagamentoCalc.taxaVista}% juros)</p>
                     <p className="text-sm text-green-600 font-bold">{formatCurrency(pagamentoCalc.totalQuitacao)}</p>
-                    {pagamentoCalc.diasAtraso > 0 && (
+                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
                       <p className="text-xs text-red-600">Inclui {formatCurrency(pagamentoCalc.jurosAtraso)} de juros por atraso</p>
                     )}
                   </div>
@@ -1049,7 +1077,7 @@ const UserArea = () => {
                     <p className="font-medium text-gray-800">Só Juros ({pagamentoCalc.taxaParcelado}%)</p>
                     <p className="text-sm text-orange-600 font-bold">{formatCurrency(pagamentoCalc.totalSoJuros)}</p>
                     <p className="text-xs text-gray-500">Principal continua: {formatCurrency(pagamentoCalc.principal)}</p>
-                    {pagamentoCalc.diasAtraso > 0 && (
+                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
                       <p className="text-xs text-red-600">Inclui {formatCurrency(pagamentoCalc.jurosAtraso)} de juros por atraso</p>
                     )}
                   </div>
@@ -1067,7 +1095,7 @@ const UserArea = () => {
                   />
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">Juros + Parte do Principal ({pagamentoCalc.taxaParcelado}%)</p>
-                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{pagamentoCalc.diasAtraso > 0 ? ' + atraso' : ''})</p>
+                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? ' + atraso' : ''})</p>
                   </div>
                 </label>
                 
@@ -1084,7 +1112,7 @@ const UserArea = () => {
                     />
                     {pagamentoEmprestimo.valorParcial && parseFloat(pagamentoEmprestimo.valorParcial) >= pagamentoCalc.totalSoJuros && (
                       <p className="text-xs text-blue-600 mt-1">
-                        Abate: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{pagamentoCalc.diasAtraso > 0 ? ' + atraso' : ''}) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.totalSoJuros)} (principal)
+                        Abate: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? ' + atraso' : ''}) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.totalSoJuros)} (principal)
                       </p>
                     )}
                   </div>
@@ -1097,6 +1125,17 @@ const UserArea = () => {
                 <p className="text-2xl font-bold text-gray-800">{formatCurrency(getValorPagamento())}</p>
               </div>
               
+              {/* Botão PIX — gerado com o valor da opção selecionada */}
+              {getValorPagamento() > 0 && (
+                <button
+                  onClick={() => openPixEmprestimo(emprestimoSelecionado, getValorPagamento())}
+                  className="w-full bg-teal-600 text-white py-2 rounded-lg hover:bg-teal-700 flex items-center justify-center gap-2 text-sm font-medium"
+                >
+                  <Copy size={16} />
+                  Copiar PIX — {formatCurrency(getValorPagamento())}
+                </button>
+              )}
+
               {/* Upload do Comprovante */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Comprovante de Pagamento</label>
