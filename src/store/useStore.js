@@ -2,7 +2,9 @@ import { create } from 'zustand';
 import { supabase } from '../services/supabase';
 import { CONFIG } from '../utils/constants';
 
-// ==================== AUTH STORE ====================
+// =====================================================
+// AUTH STORE — autenticação e sessão do usuário
+// =====================================================
 export const useAuthStore = create((set, get) => ({
   user: null,
   cotista: null,
@@ -10,176 +12,101 @@ export const useAuthStore = create((set, get) => ({
   isLoading: false,
   error: null,
 
-  // Login com email e senha
+  // Login com email e senha (admins)
   login: async (email, password) => {
     set({ isLoading: true, error: null });
-    
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
-      
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      
-      // Buscar dados do cotista
       const { data: cotista, error: cotistaError } = await supabase
-        .from('cotistas')
-        .select('*')
-        .eq('user_id', data.user.id)
-        .single();
-      
+        .from('cotistas').select('*').eq('user_id', data.user.id).single();
       if (cotistaError) throw cotistaError;
-      
-      // Verificar se foi aprovado pelo admin
       if (cotista.status === 'pendente') {
         await supabase.auth.signOut();
         throw new Error('Seu cadastro ainda não foi aprovado pelo administrador. Aguarde a aprovação.');
       }
-      
       set({ user: data.user, cotista, isAuthenticated: true, isLoading: false });
       return { user: data.user, cotista };
     } catch (error) {
-      console.error('Erro no login:', error);
       set({ error: error.message, isLoading: false });
       throw error;
     }
   },
 
-  // Login por nome (busca cotista pelo nome)
+  // Login por nome — cotistas usam nome + senha em vez de email
   loginByName: async (nome, senha) => {
     set({ isLoading: true, error: null });
-    
     try {
-      // Buscar cotista pelo nome
       const { data: cotista, error: cotistaError } = await supabase
-        .from('cotistas')
-        .select('*')
-        .ilike('nome', nome)
-        .single();
-      
-      if (cotistaError || !cotista) {
-        throw new Error('Usuário não encontrado');
-      }
-      
-      // Verificar se foi aprovado
-      if (cotista.status === 'pendente') {
-        throw new Error('Seu cadastro ainda não foi aprovado pelo administrador. Aguarde a aprovação.');
-      }
-      
-      if (!cotista.email) {
-        throw new Error('Este usuário não possui credenciais. Contate o administrador.');
-      }
-      
-      // Fazer login com o email do cotista
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: cotista.email,
-        password: senha
-      });
-      
+        .from('cotistas').select('*').ilike('nome', nome).single();
+      if (cotistaError || !cotista) throw new Error('Usuário não encontrado');
+      if (cotista.status === 'pendente') throw new Error('Seu cadastro ainda não foi aprovado pelo administrador. Aguarde a aprovação.');
+      if (!cotista.email) throw new Error('Este usuário não possui credenciais. Contate o administrador.');
+      const { data, error } = await supabase.auth.signInWithPassword({ email: cotista.email, password: senha });
       if (error) throw error;
-      
       set({ user: data.user, cotista, isAuthenticated: true, isLoading: false });
       return { user: data.user, cotista };
     } catch (error) {
-      console.error('Erro no login por nome:', error);
       set({ error: error.message, isLoading: false });
       throw error;
     }
   },
 
-  // Registro de novo usuário (nome + senha, aguarda aprovação)
+  // Registro de novo cotista — status pendente até admin aprovar
   register: async ({ password, nome, cotas, telefone, participa_rifa }) => {
     set({ isLoading: true, error: null });
-    
     try {
-      // Verificar se nome já existe
       const { data: existenteNome } = await supabase
-        .from('cotistas')
-        .select('nome')
-        .ilike('nome', nome)
-        .single();
-      
-      if (existenteNome) {
-        throw new Error(`Já existe um usuário com o nome "${nome}". Por favor, use nome e sobrenome.`);
-      }
-      
-      // Criar email fake baseado no nome (para Supabase Auth)
+        .from('cotistas').select('nome').ilike('nome', nome).single();
+      if (existenteNome) throw new Error(`Já existe um usuário com o nome "${nome}". Por favor, use nome e sobrenome.`);
+
+      // Email fictício baseado no nome (Supabase Auth exige email)
       const emailFake = `${nome.toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
-      
-      // Criar usuário no Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: emailFake,
-        password
-      });
-      
+      const { data: authData, error: authError } = await supabase.auth.signUp({ email: emailFake, password });
       if (authError) throw authError;
-      
-      // Criar registro na tabela cotistas com status PENDENTE
+
       const { data: cotista, error: cotistaError } = await supabase
         .from('cotistas')
         .insert({
-          user_id: authData.user?.id,
-          nome,
-          email: emailFake,
-          cotas: parseInt(cotas) || 1,
-          telefone: telefone || null,
-          participa_rifa: participa_rifa || false,
-          is_admin: false,
-          status: 'pendente' // Aguarda aprovação do admin
-        })
-        .select()
-        .single();
-      
+          user_id: authData.user?.id, nome, email: emailFake,
+          cotas: parseInt(cotas) || 1, telefone: telefone || null,
+          participa_rifa: participa_rifa || false, is_admin: false, status: 'pendente'
+        }).select().single();
       if (cotistaError) throw cotistaError;
-      
-      // NÃO gera mensalidades aqui - será gerado quando admin aprovar
-      
-      // Enviar alerta via Telegram
+
       try {
         const { alertaNovoCadastro } = await import('../services/telegram');
         await alertaNovoCadastro(nome, cotas);
-      } catch (telegramError) {
-        console.log('Erro ao enviar alerta Telegram:', telegramError);
-      }
-      
+      } catch (e) { console.log('Telegram indisponível:', e); }
+
       set({ isLoading: false });
       return { user: authData.user, cotista };
     } catch (error) {
-      console.error('Erro no registro:', error);
       set({ error: error.message, isLoading: false });
       throw error;
     }
   },
 
-  // Logout
   logout: async () => {
     await supabase.auth.signOut();
     set({ user: null, cotista: null, isAuthenticated: false });
   },
 
-  // Verificar autenticação
+  // Verifica sessão ativa ao recarregar a página
   checkAuth: async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      
       if (session?.user) {
         const { data: cotista } = await supabase
-          .from('cotistas')
-          .select('*')
-          .eq('user_id', session.user.id)
-          .single();
-        
+          .from('cotistas').select('*').eq('user_id', session.user.id).single();
         if (cotista) {
           set({ user: session.user, cotista, isAuthenticated: true });
           return true;
         }
       }
-      
       set({ user: null, cotista: null, isAuthenticated: false });
       return false;
     } catch (error) {
-      console.error('Erro ao verificar auth:', error);
       set({ user: null, cotista: null, isAuthenticated: false });
       return false;
     }
@@ -188,36 +115,37 @@ export const useAuthStore = create((set, get) => ({
   clearError: () => set({ error: null })
 }));
 
-// ==================== APP STORE ====================
+// =====================================================
+// APP STORE — dados principais da caixinha
+// =====================================================
 export const useAppStore = create((set, get) => ({
   cotistas: [],
-  mensalidades: {},
+  mensalidades: {},       // agrupado por mês: { 'YYYY-MM': [mensalidade, ...] }
   emprestimos: [],
   emprestimos_pendentes: 0,
-  rifas: [],
   cdi: [],
   comprovantes: [],
   comprovantes_pendentes: 0,
   juros_atraso: [],
   juros_emprestimo: [],
+  rifaNumeros: [],
+  rifaSorteios: [],
   configuracoes: {},
   config: { ...CONFIG },
   isLoading: false,
   isOnline: true,
 
-  // ===== CONFIGURAÇÕES =====
+  // =====================================================
+  // CONFIGURAÇÕES
+  // =====================================================
+
   loadConfiguracoes: async () => {
     try {
-      const { data, error } = await supabase
-        .from('configuracoes')
-        .select('*');
-      
+      const { data, error } = await supabase.from('configuracoes').select('*');
       if (error) throw error;
-      
+      // Converte array [{chave, valor}] em objeto {chave: valor}
       const config = {};
-      (data || []).forEach(c => {
-        config[c.chave] = c.valor;
-      });
+      (data || []).forEach(c => { config[c.chave] = c.valor; });
       set({ configuracoes: config });
       return config;
     } catch (error) {
@@ -232,26 +160,21 @@ export const useAppStore = create((set, get) => ({
         .from('configuracoes')
         .update({ valor, updated_at: new Date().toISOString() })
         .eq('chave', chave);
-      
       if (error) throw error;
       await get().loadConfiguracoes();
-      return true;
     } catch (error) {
       console.error('Erro ao atualizar configuração:', error);
       throw error;
     }
   },
 
-  // ===== COTISTAS =====
-  setCotistas: (cotistas) => set({ cotistas }),
+  // =====================================================
+  // COTISTAS
+  // =====================================================
 
   loadCotistas: async () => {
     try {
-      const { data, error } = await supabase
-        .from('cotistas')
-        .select('*')
-        .order('nome');
-      
+      const { data, error } = await supabase.from('cotistas').select('*').order('nome');
       if (error) throw error;
       set({ cotistas: data || [] });
       return data;
@@ -261,16 +184,17 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  // ===== COMPROVANTES =====
+  // =====================================================
+  // COMPROVANTES
+  // =====================================================
+
   loadComprovantes: async () => {
     try {
       const { data, error } = await supabase
         .from('comprovantes')
-        .select(`*, cotista:cotistas!comprovantes_cotista_id_fkey(id, nome, email)`)
+        .select('*, cotista:cotistas!comprovantes_cotista_id_fkey(id, nome, email)')
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
-      
       const pendentes = (data || []).filter(c => c.status === 'pendente').length;
       set({ comprovantes: data || [], comprovantes_pendentes: pendentes });
       return data;
@@ -283,27 +207,13 @@ export const useAppStore = create((set, get) => ({
   enviarComprovante: async (comprovante) => {
     try {
       const { data, error } = await supabase
-        .from('comprovantes')
-        .insert(comprovante)
-        .select()
-        .single();
-      
+        .from('comprovantes').insert(comprovante).select().single();
       if (error) throw error;
-      
-      // Enviar alerta via Telegram
       try {
         const { alertaNovoComprovante } = await import('../services/telegram');
-        const cotistas = get().cotistas;
-        const cotista = cotistas.find(c => c.id === comprovante.cotista_id);
-        await alertaNovoComprovante(
-          cotista?.nome || 'Desconhecido',
-          comprovante.valor_informado,
-          comprovante.tipo
-        );
-      } catch (telegramError) {
-        console.log('Erro ao enviar alerta Telegram:', telegramError);
-      }
-      
+        const cotista = get().cotistas.find(c => c.id === comprovante.cotista_id);
+        await alertaNovoComprovante(cotista?.nome || 'Desconhecido', comprovante.valor_informado, comprovante.tipo);
+      } catch (e) { console.log('Telegram indisponível:', e); }
       await get().loadComprovantes();
       return data;
     } catch (error) {
@@ -312,232 +222,146 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
+  // Aprovar comprovante — aplica os efeitos no empréstimo ou mensalidade
   aprovarComprovante: async (comprovanteId, adminId, valorAprovado, jurosAtraso = 0) => {
     try {
-      // Buscar comprovante
       const { data: comprovante } = await supabase
-        .from('comprovantes')
-        .select('*')
-        .eq('id', comprovanteId)
-        .single();
-      
+        .from('comprovantes').select('*').eq('id', comprovanteId).single();
       if (!comprovante) throw new Error('Comprovante não encontrado');
 
-      // Verificar se já existe outro comprovante APROVADO para mesma referencia_id e cotista_id
-      const { data: comprovantesExistentes } = await supabase
-        .from('comprovantes')
-        .select('id')
+      // Verifica duplicata ANTES de alterar o status — evita reprocessar empréstimo
+      const { data: jaAprovados } = await supabase
+        .from('comprovantes').select('id')
         .eq('cotista_id', comprovante.cotista_id)
         .eq('referencia_id', comprovante.referencia_id)
         .eq('tipo', comprovante.tipo)
         .eq('status', 'aprovado');
-      
-      const jaTemAprovado = comprovantesExistentes && comprovantesExistentes.length > 0;
+      const jaTemAprovado = jaAprovados && jaAprovados.length > 0;
 
-      // Atualizar comprovante
-      const { error: updateError } = await supabase
-        .from('comprovantes')
-        .update({
-          status: 'aprovado',
-          validado_por: adminId,
-          data_validacao: new Date().toISOString()
-        })
-        .eq('id', comprovanteId);
-      
-      if (updateError) throw updateError;
+      // Marca comprovante como aprovado (ajustado abaixo para empréstimos)
+      await supabase.from('comprovantes').update({
+        status: 'aprovado', validado_por: adminId, data_validacao: new Date().toISOString()
+      }).eq('id', comprovanteId);
 
-      // Registrar juros por atraso se houver
+      // Registra juros de atraso se houver
       if (jurosAtraso > 0) {
-        await supabase
-          .from('juros_atraso')
-          .insert({
-            cotista_id: comprovante.cotista_id,
-            comprovante_id: comprovanteId,
-            tipo: comprovante.tipo,
-            valor_juros: jurosAtraso,
-            mes_referencia: comprovante.mes_referencia,
-            registrado_por: adminId
-          });
+        await supabase.from('juros_atraso').insert({
+          cotista_id: comprovante.cotista_id, comprovante_id: comprovanteId,
+          tipo: comprovante.tipo, valor_juros: jurosAtraso,
+          mes_referencia: comprovante.mes_referencia, registrado_por: adminId
+        });
       }
 
-      // Valor que vai para o cotista (desconta juros)
+      // Valor efetivo para o cotista (descontando juros de atraso)
       const valorParaCotista = valorAprovado - jurosAtraso;
 
-      // Para mensalidades: só atualiza se NÃO tinha comprovante aprovado antes
-      // Para empréstimos: SEMPRE atualiza (pode ter múltiplos pagamentos)
+      // ── MENSALIDADE ──
       if (comprovante.tipo === 'mensalidade') {
         if (!jaTemAprovado) {
           const { data: mensalidade } = await supabase
             .from('mensalidades')
             .select('*, cotista:cotistas(id, cotas, participa_rifa)')
-            .eq('id', comprovante.referencia_id)
-            .single();
-          
+            .eq('id', comprovante.referencia_id).single();
+
           if (mensalidade) {
-            // Calcular valor total devido incluindo rifa
+            // Valor total inclui rifa se cotista participar
             let valorTotalDevido = Number(mensalidade.valor_devido || 0);
             if (mensalidade.cotista?.participa_rifa) {
               valorTotalDevido += (mensalidade.cotista.cotas || 0) * 20;
             }
-            
             const novoValorPago = (mensalidade.valor_pago || 0) + valorParaCotista;
             const status = novoValorPago >= valorTotalDevido ? 'pago' : 'parcial';
-            
-            await supabase
-              .from('mensalidades')
-              .update({
-                valor_pago: novoValorPago,
-                status,
-                data_pagamento: new Date().toISOString()
-              })
-              .eq('id', comprovante.referencia_id);
+            await supabase.from('mensalidades').update({
+              valor_pago: novoValorPago, status, data_pagamento: new Date().toISOString()
+            }).eq('id', comprovante.referencia_id);
           }
         }
-      } else if (comprovante.tipo === 'emprestimo') {
-        // Empréstimo: só processa se ainda não foi aprovado (evita duplo processamento)
-        // Usa jaTemAprovado (calculado ANTES do update de status) para detectar duplicata real
-        if (jaTemAprovado) {
-          console.warn('Comprovante já aprovado — processamento ignorado.');
-        } else {
-        const { data: emprestimo, error: fetchError } = await supabase
-          .from('emprestimos')
-          .select('*')
-          .eq('id', comprovante.referencia_id)
-          .single();
-        
-        if (fetchError) {
-          console.error('Erro ao buscar empréstimo:', fetchError);
-        }
-        
-        if (emprestimo) {
-          const modalidade = emprestimo.modalidade || 'normal';
-          const principalAtual = Number(emprestimo.principal_restante || emprestimo.valor_emprestimo || 0);
-          
-          // Extrair tipo de pagamento da observação
-          const observacao = comprovante.observacao || '';
-          let tipoPagamento = 'quitacao';
-          let taxaJuros = 20;
-          
-          if (observacao.includes('Só Juros')) {
-            tipoPagamento = 'soJuros';
-            taxaJuros = 30;
-          } else if (observacao.includes('Parcial')) {
-            tipoPagamento = 'parcial';
-            taxaJuros = 30;
-          } else if (observacao.includes('Quitação')) {
-            tipoPagamento = 'quitacao';
-            taxaJuros = 20;
-          }
-          
-          // Calcular juros e principal abatido
-          let valorJuros = 0;
-          let principalAbatido = 0;
-          let novoPrincipal = principalAtual;
-          let novoStatus = 'ativo';
-          
-          if (tipoPagamento === 'soJuros') {
-            valorJuros = valorParaCotista;
-            principalAbatido = 0;
-            novoPrincipal = principalAtual;
-            novoStatus = 'ativo';
-            
-          } else if (tipoPagamento === 'parcial') {
-            const jurosCalculado = principalAtual * (taxaJuros / 100);
-            valorJuros = Math.min(jurosCalculado, valorParaCotista);
-            principalAbatido = Math.max(0, valorParaCotista - valorJuros);
-            novoPrincipal = Math.max(0, principalAtual - principalAbatido);
-            novoStatus = novoPrincipal <= 0 ? 'pago' : 'ativo';
-            
-          } else {
-            valorJuros = principalAtual * (taxaJuros / 100);
-            principalAbatido = principalAtual;
-            novoPrincipal = 0;
-            novoStatus = 'pago';
-          }
-          
-          // Registrar juros na tabela juros_emprestimo
-          // Proteção anti-duplicata: verifica se já existe registro para esse comprovante
-          if (valorJuros > 0) {
-            const mesRef = new Date().toISOString().slice(0, 7);
-            let jaRegistrado = false;
 
-            if (comprovanteId) {
-              const { data: existing } = await supabase
-                .from('juros_emprestimo')
-                .select('id')
-                .eq('comprovante_id', comprovanteId)
-                .maybeSingle();
-              jaRegistrado = !!existing;
+      // ── EMPRÉSTIMO ──
+      } else if (comprovante.tipo === 'emprestimo') {
+        if (jaTemAprovado) {
+          console.warn('Comprovante já aprovado — processamento do empréstimo ignorado.');
+        } else {
+          const { data: emprestimo } = await supabase
+            .from('emprestimos').select('*').eq('id', comprovante.referencia_id).single();
+
+          if (emprestimo) {
+            const modalidade = emprestimo.modalidade || 'normal';
+            const principalAtual = Number(emprestimo.principal_restante || emprestimo.valor_emprestimo || 0);
+
+            // Detecta tipo de pagamento pela observação do comprovante
+            const obs = comprovante.observacao || '';
+            let tipoPagamento = 'quitacao', taxaJuros = 20;
+            if (obs.includes('Só Juros'))   { tipoPagamento = 'soJuros'; taxaJuros = 30; }
+            else if (obs.includes('Parcial')) { tipoPagamento = 'parcial'; taxaJuros = 30; }
+
+            // Calcula juros e principal abatido conforme tipo
+            let valorJuros = 0, principalAbatido = 0;
+            let novoPrincipal = principalAtual, novoStatus = 'ativo';
+
+            if (tipoPagamento === 'soJuros') {
+              // Paga só juros — principal não muda
+              valorJuros = valorParaCotista;
+
+            } else if (tipoPagamento === 'parcial') {
+              // Paga juros + parte do principal
+              const jurosCalculado = principalAtual * (taxaJuros / 100);
+              valorJuros = Math.min(jurosCalculado, valorParaCotista);
+              principalAbatido = Math.max(0, valorParaCotista - valorJuros);
+              novoPrincipal = Math.max(0, principalAtual - principalAbatido);
+              novoStatus = novoPrincipal <= 0 ? 'pago' : 'ativo';
+
+            } else {
+              // Quitação total
+              valorJuros = principalAtual * (taxaJuros / 100);
+              principalAbatido = principalAtual;
+              novoPrincipal = 0;
+              novoStatus = 'pago';
             }
 
-            if (!jaRegistrado) {
-              await supabase
-                .from('juros_emprestimo')
-                .insert({
-                  emprestimo_id: emprestimo.id,
-                  cotista_id: emprestimo.cotista_id,
-                  comprovante_id: comprovanteId,
-                  modalidade,
-                  tipo_pagamento: tipoPagamento,
-                  valor_juros: valorJuros,
-                  valor_principal_abatido: principalAbatido,
-                  taxa_juros: taxaJuros,
-                  mes_referencia: mesRef,
+            // Registra juros com proteção anti-duplicata por comprovante
+            if (valorJuros > 0) {
+              const { data: existing } = await supabase
+                .from('juros_emprestimo').select('id').eq('comprovante_id', comprovanteId).maybeSingle();
+              if (!existing) {
+                await supabase.from('juros_emprestimo').insert({
+                  emprestimo_id: emprestimo.id, cotista_id: emprestimo.cotista_id,
+                  comprovante_id: comprovanteId, modalidade, tipo_pagamento: tipoPagamento,
+                  valor_juros: valorJuros, valor_principal_abatido: principalAbatido,
+                  taxa_juros: taxaJuros, mes_referencia: new Date().toISOString().slice(0, 7),
                   registrado_por: adminId
                 });
-            } else {
-              console.warn(`Juros já registrados para comprovante ${comprovanteId} — insert ignorado.`);
+              }
             }
-          }
-          
-          // Calcular novo vencimento: vencimento atual + 1 mês
-          // FIX: null-safe — só opera se data_vencimento existe e é válida
-          let novoVencimentoStr = emprestimo.data_vencimento || null;
-          if (novoStatus === 'ativo' && emprestimo.data_vencimento) {
-            const vencimentoAtual = new Date(emprestimo.data_vencimento);
-            if (!isNaN(vencimentoAtual.getTime())) {
-              const novoVencimento = new Date(vencimentoAtual.getFullYear(), vencimentoAtual.getMonth() + 1, vencimentoAtual.getDate());
-              novoVencimentoStr = novoVencimento.toISOString().split('T')[0];
+
+            // Avança vencimento em 1 mês se empréstimo continua ativo
+            let novoVencimento = emprestimo.data_vencimento || null;
+            if (novoStatus === 'ativo' && emprestimo.data_vencimento) {
+              const v = new Date(emprestimo.data_vencimento);
+              if (!isNaN(v.getTime())) {
+                novoVencimento = new Date(v.getFullYear(), v.getMonth() + 1, v.getDate())
+                  .toISOString().split('T')[0];
+              }
             }
-          }
-          
-          // Status do comprovante reflete o tipo de pagamento
-          const statusComprovante = tipoPagamento === 'quitacao' ? 'aprovado'
-            : tipoPagamento === 'soJuros' ? 'juros'
-            : 'parcial';
 
-          // Atualizar status do comprovante com o tipo correto
-          await supabase
-            .from('comprovantes')
-            .update({ status: statusComprovante })
-            .eq('id', comprovanteId);
+            // Status do comprovante reflete o tipo para facilitar histórico
+            const statusComprovante = tipoPagamento === 'quitacao' ? 'aprovado'
+              : tipoPagamento === 'soJuros' ? 'juros' : 'parcial';
+            await supabase.from('comprovantes').update({ status: statusComprovante }).eq('id', comprovanteId);
 
-          const dadosUpdate = {
-            principal_restante: novoPrincipal,
-            status: novoStatus,
-            data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
-            data_vencimento: novoStatus === 'ativo' ? novoVencimentoStr : emprestimo.data_vencimento
-          };
-          
-          const { error: empError } = await supabase
-            .from('emprestimos')
-            .update(dadosUpdate)
-            .eq('id', comprovante.referencia_id);
-          
-          if (empError) {
-            console.error('Erro ao atualizar empréstimo:', empError);
+            await supabase.from('emprestimos').update({
+              principal_restante: novoPrincipal, status: novoStatus,
+              data_quitacao: novoStatus === 'pago' ? new Date().toISOString() : null,
+              data_vencimento: novoStatus === 'ativo' ? novoVencimento : emprestimo.data_vencimento
+            }).eq('id', comprovante.referencia_id);
           }
-        } else {
-          console.error('Empréstimo não encontrado com ID:', comprovante.referencia_id);
         }
-        } // end else (comprovante não aprovado)
       }
 
-      await get().loadComprovantes();
-      await get().loadJurosAtraso();
-      await get().loadJurosEmprestimo();
-      await get().loadMensalidades();
-      await get().loadEmprestimos();
+      await Promise.all([
+        get().loadComprovantes(), get().loadJurosAtraso(),
+        get().loadJurosEmprestimo(), get().loadMensalidades(), get().loadEmprestimos()
+      ]);
       return true;
     } catch (error) {
       console.error('Erro ao aprovar comprovante:', error);
@@ -545,36 +369,26 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
+  // Rejeitar comprovante — desfaz efeitos no empréstimo se já estava processado
   rejeitarComprovante: async (comprovanteId, adminId, motivo) => {
     try {
-      // Buscar comprovante para saber se estava aprovado
       const { data: comprovante } = await supabase
-        .from('comprovantes')
-        .select('*')
-        .eq('id', comprovanteId)
-        .single();
+        .from('comprovantes').select('*').eq('id', comprovanteId).single();
 
-      // Se estava aprovado: desfaz o efeito no empréstimo
+      // Rollback do empréstimo se comprovante já estava processado
       if (['aprovado', 'juros', 'parcial'].includes(comprovante?.status) && comprovante?.tipo === 'emprestimo') {
-        // Buscar registro de juros vinculado a esse comprovante
         const { data: jurosReg } = await supabase
-          .from('juros_emprestimo')
-          .select('*')
-          .eq('comprovante_id', comprovanteId)
-          .maybeSingle();
+          .from('juros_emprestimo').select('*').eq('comprovante_id', comprovanteId).maybeSingle();
 
         if (jurosReg) {
-          // Buscar estado atual do empréstimo
           const { data: emp } = await supabase
-            .from('emprestimos')
-            .select('*')
-            .eq('id', comprovante.referencia_id)
-            .single();
+            .from('emprestimos').select('*').eq('id', comprovante.referencia_id).single();
 
           if (emp) {
+            // Restaura principal somando o que foi abatido
             const principalRestaurado = Number(emp.principal_restante || 0) + Number(jurosReg.valor_principal_abatido || 0);
 
-            // Recuar data_vencimento em 1 mês (desfaz o avanço feito na aprovação)
+            // Recua vencimento em 1 mês (desfaz o avanço da aprovação)
             let vencimentoRestaurado = emp.data_vencimento;
             if (emp.data_vencimento && jurosReg.tipo_pagamento !== 'quitacao') {
               const v = new Date(emp.data_vencimento);
@@ -582,41 +396,23 @@ export const useAppStore = create((set, get) => ({
               vencimentoRestaurado = v.toISOString().split('T')[0];
             }
 
-            await supabase
-              .from('emprestimos')
-              .update({
-                principal_restante: principalRestaurado,
-                status: 'ativo',
-                data_quitacao: null,
-                data_vencimento: vencimentoRestaurado
-              })
-              .eq('id', comprovante.referencia_id);
+            await supabase.from('emprestimos').update({
+              principal_restante: principalRestaurado, status: 'ativo',
+              data_quitacao: null, data_vencimento: vencimentoRestaurado
+            }).eq('id', comprovante.referencia_id);
 
-            // Remover registro de juros vinculado
-            await supabase
-              .from('juros_emprestimo')
-              .delete()
-              .eq('comprovante_id', comprovanteId);
+            // Remove juros vinculados ao comprovante rejeitado
+            await supabase.from('juros_emprestimo').delete().eq('comprovante_id', comprovanteId);
           }
         }
       }
 
-      // Marcar comprovante como rejeitado
-      const { error } = await supabase
-        .from('comprovantes')
-        .update({
-          status: 'rejeitado',
-          motivo_rejeicao: motivo,
-          validado_por: adminId,
-          data_validacao: new Date().toISOString()
-        })
-        .eq('id', comprovanteId);
+      await supabase.from('comprovantes').update({
+        status: 'rejeitado', motivo_rejeicao: motivo,
+        validado_por: adminId, data_validacao: new Date().toISOString()
+      }).eq('id', comprovanteId);
 
-      if (error) throw error;
-
-      await get().loadComprovantes();
-      await get().loadEmprestimos();
-      await get().loadJurosEmprestimo();
+      await Promise.all([get().loadComprovantes(), get().loadEmprestimos(), get().loadJurosEmprestimo()]);
       return true;
     } catch (error) {
       console.error('Erro ao rejeitar comprovante:', error);
@@ -624,27 +420,23 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  // ===== MENSALIDADES =====
-  setMensalidades: (mensalidades) => set({ mensalidades }),
+  // =====================================================
+  // MENSALIDADES
+  // =====================================================
 
   loadMensalidades: async () => {
     try {
       const { data, error } = await supabase
         .from('mensalidades')
-        .select(`*, cotista:cotistas(id, nome, cotas)`)
+        .select('*, cotista:cotistas(id, nome, cotas)')
         .order('mes_referencia');
-      
       if (error) throw error;
-      
-      // Agrupar por mês
+      // Agrupa por mês: { 'YYYY-MM': [...] }
       const agrupado = {};
       (data || []).forEach(m => {
-        if (!agrupado[m.mes_referencia]) {
-          agrupado[m.mes_referencia] = [];
-        }
+        if (!agrupado[m.mes_referencia]) agrupado[m.mes_referencia] = [];
         agrupado[m.mes_referencia].push(m);
       });
-      
       set({ mensalidades: agrupado });
       return agrupado;
     } catch (error) {
@@ -653,53 +445,18 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  registrarPagamento: async (mensalidadeId, valor) => {
-    try {
-      // Buscar mensalidade atual
-      const { data: atual } = await supabase
-        .from('mensalidades')
-        .select('*')
-        .eq('id', mensalidadeId)
-        .single();
-      
-      if (atual) {
-        const novoValorPago = (atual.valor_pago || 0) + valor;
-        const status = novoValorPago >= atual.valor_devido ? 'pago' : 'parcial';
-        
-        const { error } = await supabase
-          .from('mensalidades')
-          .update({
-            valor_pago: novoValorPago,
-            status,
-            data_pagamento: new Date().toISOString()
-          })
-          .eq('id', mensalidadeId);
-        
-        if (!error) {
-          await get().loadMensalidades();
-        }
-      }
-    } catch (error) {
-      console.error('Erro ao registrar pagamento:', error);
-      throw error;
-    }
-  },
-
-  // ===== EMPRÉSTIMOS =====
-  setEmprestimos: (emprestimos) => set({ emprestimos }),
+  // =====================================================
+  // EMPRÉSTIMOS
+  // =====================================================
 
   loadEmprestimos: async () => {
     try {
       const { data, error } = await supabase
         .from('emprestimos')
-        .select(`*, cotista:cotistas!emprestimos_cotista_id_fkey(id, nome, cotas)`)
+        .select('*, cotista:cotistas!emprestimos_cotista_id_fkey(id, nome, cotas)')
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
-      
-      // Contar pendentes
       const pendentes = (data || []).filter(e => e.status === 'pendente').length;
-      
       set({ emprestimos: data || [], emprestimos_pendentes: pendentes });
       return data;
     } catch (error) {
@@ -708,48 +465,11 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  solicitarEmprestimo: async (dados) => {
-    try {
-      const valorJuros = dados.valor * (dados.taxa_juros / 100);
-      const valorTotal = dados.valor + valorJuros;
-      
-      const { data, error } = await supabase
-        .from('emprestimos')
-        .insert({
-          cotista_id: dados.cotista_id,
-          valor_emprestimo: dados.valor,
-          tipo: dados.tipo,
-          parcelas: dados.tipo === 'parcelado' ? dados.parcelas : 1,
-          taxa_juros: dados.taxa_juros,
-          valor_juros: valorJuros,
-          valor_total: valorTotal,
-          valor_parcela: dados.tipo === 'parcelado' ? valorTotal / dados.parcelas : valorTotal,
-          motivo: dados.motivo,
-          status: 'pendente'
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      await get().loadEmprestimos();
-      return data;
-    } catch (error) {
-      console.error('Erro ao solicitar empréstimo:', error);
-      throw error;
-    }
-  },
-
   aprovarEmprestimo: async (id, aprovadorId) => {
     try {
-      const { error } = await supabase
-        .from('emprestimos')
-        .update({
-          status: 'ativo',
-          aprovado_por: aprovadorId,
-          data_aprovacao: new Date().toISOString()
-        })
-        .eq('id', id);
-      
+      const { error } = await supabase.from('emprestimos').update({
+        status: 'ativo', aprovado_por: aprovadorId, data_aprovacao: new Date().toISOString()
+      }).eq('id', id);
       if (error) throw error;
       await get().loadEmprestimos();
     } catch (error) {
@@ -760,11 +480,7 @@ export const useAppStore = create((set, get) => ({
 
   rejeitarEmprestimo: async (id) => {
     try {
-      const { error } = await supabase
-        .from('emprestimos')
-        .update({ status: 'rejeitado' })
-        .eq('id', id);
-      
+      const { error } = await supabase.from('emprestimos').update({ status: 'rejeitado' }).eq('id', id);
       if (error) throw error;
       await get().loadEmprestimos();
     } catch (error) {
@@ -775,14 +491,9 @@ export const useAppStore = create((set, get) => ({
 
   quitarEmprestimo: async (id) => {
     try {
-      const { error } = await supabase
-        .from('emprestimos')
-        .update({
-          status: 'pago',
-          data_quitacao: new Date().toISOString()
-        })
-        .eq('id', id);
-      
+      const { error } = await supabase.from('emprestimos').update({
+        status: 'pago', data_quitacao: new Date().toISOString()
+      }).eq('id', id);
       if (error) throw error;
       await get().loadEmprestimos();
     } catch (error) {
@@ -791,23 +502,13 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  // ===== RIFAS =====
-  setRifas: (rifas) => set({ rifas }),
-
-  // tabela 'rifas' removida do banco — mantido stub para não quebrar referências
-  loadRifas: async () => [],
-  addRifa: async () => {},
-
-  // ===== CDI =====
-  setCdi: (cdi) => set({ cdi }),
+  // =====================================================
+  // CDI
+  // =====================================================
 
   loadCdi: async () => {
     try {
-      const { data, error } = await supabase
-        .from('cdi')
-        .select('*')
-        .order('mes_referencia');
-      
+      const { data, error } = await supabase.from('cdi').select('*').order('mes_referencia');
       if (error) throw error;
       set({ cdi: data || [] });
       return data;
@@ -819,10 +520,7 @@ export const useAppStore = create((set, get) => ({
 
   addCdi: async (cdiItem) => {
     try {
-      const { error } = await supabase
-        .from('cdi')
-        .upsert(cdiItem, { onConflict: 'mes_referencia' });
-      
+      const { error } = await supabase.from('cdi').upsert(cdiItem, { onConflict: 'mes_referencia' });
       if (error) throw error;
       await get().loadCdi();
     } catch (error) {
@@ -831,14 +529,16 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  // ===== JUROS POR ATRASO =====
+  // =====================================================
+  // JUROS DE ATRASO — registrado quando mensalidade atrasa
+  // =====================================================
+
   loadJurosAtraso: async () => {
     try {
       const { data, error } = await supabase
         .from('juros_atraso')
-        .select(`*, cotista:cotistas!juros_atraso_cotista_id_fkey(id, nome)`)
+        .select('*, cotista:cotistas!juros_atraso_cotista_id_fkey(id, nome)')
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
       set({ juros_atraso: data || [] });
       return data;
@@ -850,12 +550,7 @@ export const useAppStore = create((set, get) => ({
 
   registrarJurosAtraso: async (dados) => {
     try {
-      const { data, error } = await supabase
-        .from('juros_atraso')
-        .insert(dados)
-        .select()
-        .single();
-      
+      const { data, error } = await supabase.from('juros_atraso').insert(dados).select().single();
       if (error) throw error;
       await get().loadJurosAtraso();
       return data;
@@ -865,19 +560,21 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
+  // Soma total de juros de atraso (usado no Dashboard e ExtratoCotista)
   getTotalJurosAtraso: () => {
-    const { juros_atraso } = get();
-    return (juros_atraso || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+    return (get().juros_atraso || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
   },
 
-  // ===== JUROS DE EMPRÉSTIMO =====
+  // =====================================================
+  // JUROS DE EMPRÉSTIMO — histórico de pagamentos de juros
+  // =====================================================
+
   loadJurosEmprestimo: async () => {
     try {
       const { data, error } = await supabase
         .from('juros_emprestimo')
-        .select(`*, cotista:cotistas!juros_emprestimo_cotista_id_fkey(id, nome), emprestimo:emprestimos(id, cotista_id, valor_emprestimo, modalidade)`)
+        .select('*, cotista:cotistas!juros_emprestimo_cotista_id_fkey(id, nome), emprestimo:emprestimos(id, cotista_id, valor_emprestimo, modalidade)')
         .order('created_at', { ascending: false });
-      
       if (error) throw error;
       set({ juros_emprestimo: data || [] });
       return data;
@@ -887,38 +584,231 @@ export const useAppStore = create((set, get) => ({
     }
   },
 
-  registrarJurosEmprestimo: async (dados) => {
+  // =====================================================
+  // HELPERS — utilitários de cálculo compartilhados
+  // =====================================================
+
+  // Retorna apenas cotistas não-admin e ativos
+  getCotistasAtivos: () => {
+    return (get().cotistas || []).filter(c => !c.is_admin && c.status === 'ativo');
+  },
+
+  // Total de cotas de cotistas não-admin (base para % de participação)
+  getTotalCotas: () => {
+    return (get().cotistas || [])
+      .filter(c => !c.is_admin)
+      .reduce((sum, c) => sum + (c.cotas || 0), 0);
+  },
+
+  // Total investido por todos (fallback do Dashboard quando API falha)
+  getTotalInvestido: () => {
+    const { mensalidades, cotistas } = get();
+    const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
+    return Object.values(mensalidades).flat()
+      .filter(m => !adminIds.includes(m.cotista_id))
+      .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
+  },
+
+  // Total investido por um cotista específico (só mensalidades, sem rifa)
+  // Usa valor_devido para excluir rifa — consistente com ExtratoCotista
+  getInvestidoByCotista: (cotistaId) => {
+    return Object.values(get().mensalidades)
+      .flat()
+      .filter(m => m.cotista_id === cotistaId && (m.status === 'pago' || m.status === 'parcial'))
+      .reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
+  },
+
+  // Limite disponível para novo empréstimo — desconta empréstimos já ativos da mesma modalidade
+  getLimiteEmprestimo: (cotistaId, modalidade = 'normal') => {
+    const investido = get().getInvestidoByCotista(cotistaId);
+    const { cotistas, emprestimos } = get();
+    const cotista = cotistas.find(c => c.id === cotistaId);
+
+    // Percentual configurado por cotista individualmente
+    const percentual = modalidade === 'caixinha'
+      ? (cotista?.limite_emprestimo_caixinha || 100) / 100
+      : (cotista?.limite_emprestimo || 80) / 100;
+
+    const limiteTotal = investido * percentual;
+    const emprestimosAtivos = (emprestimos || [])
+      .filter(e => e.cotista_id === cotistaId && (e.status === 'ativo' || e.status === 'pendente') && (e.modalidade || 'normal') === modalidade)
+      .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
+
+    return Math.max(0, limiteTotal - emprestimosAtivos);
+  },
+
+  // =====================================================
+  // RIFAS — números e sorteios mensais
+  // =====================================================
+
+  loadRifaNumeros: async () => {
     try {
       const { data, error } = await supabase
-        .from('juros_emprestimo')
-        .insert(dados)
-        .select()
-        .single();
-      
+        .from('rifa_numeros').select('*, cotista:cotistas(id, nome)').eq('ativo', true).order('numero');
       if (error) throw error;
-      await get().loadJurosEmprestimo();
+      set({ rifaNumeros: data || [] });
       return data;
     } catch (error) {
-      console.error('Erro ao registrar juros de empréstimo:', error);
+      console.error('Erro ao carregar números da rifa:', error);
+      return [];
+    }
+  },
+
+  loadRifaSorteios: async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rifa_sorteios').select('*, cotista_vencedor:cotistas(id, nome)')
+        .order('mes_referencia', { ascending: false });
+      if (error) throw error;
+      set({ rifaSorteios: data || [] });
+      return data;
+    } catch (error) {
+      console.error('Erro ao carregar sorteios:', error);
+      return [];
+    }
+  },
+
+  // Retorna números da rifa de um cotista específico
+  getNumerosRifaByCotista: (cotistaId) => {
+    return (get().rifaNumeros || []).filter(n => n.cotista_id === cotistaId);
+  },
+
+  // Ativa rifa para cotista gerando 5 números únicos por cota
+  ativarRifaCotista: async (cotistaId, cotas) => {
+    try {
+      const quantidade = cotas * 5;
+      const existentes = new Set((get().rifaNumeros || []).map(n => n.numero));
+      const novos = [];
+      while (novos.length < quantidade) {
+        const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+        if (!existentes.has(numero) && !novos.includes(numero)) novos.push(numero);
+      }
+      await supabase.from('rifa_numeros').insert(novos.map(numero => ({ cotista_id: cotistaId, numero, ativo: true })));
+      await supabase.from('cotistas').update({ participa_rifa: true }).eq('id', cotistaId);
+      await Promise.all([get().loadRifaNumeros(), get().loadCotistas()]);
+      return novos;
+    } catch (error) {
+      console.error('Erro ao ativar rifa:', error);
       throw error;
     }
   },
 
-  // ===== INICIALIZAÇÃO =====
-  initializeData: () => {
-    // Não faz nada - dados vêm do Supabase
+  // Desativa rifa removendo todos os números do cotista
+  desativarRifaCotista: async (cotistaId) => {
+    try {
+      await supabase.from('rifa_numeros').delete().eq('cotista_id', cotistaId);
+      await supabase.from('cotistas').update({ participa_rifa: false }).eq('id', cotistaId);
+      await Promise.all([get().loadRifaNumeros(), get().loadCotistas()]);
+    } catch (error) {
+      console.error('Erro ao desativar rifa:', error);
+      throw error;
+    }
   },
+
+  // Ajusta números quando cotista muda quantidade de cotas
+  ajustarNumerosRifa: async (cotistaId, cotasAntigas, cotasNovas) => {
+    try {
+      const numerosAtuais = get().getNumerosRifaByCotista(cotistaId);
+      const necessarios = cotasNovas * 5;
+      const diferenca = necessarios - numerosAtuais.length;
+
+      if (diferenca > 0) {
+        const existentes = new Set((get().rifaNumeros || []).map(n => n.numero));
+        const novos = [];
+        while (novos.length < diferenca) {
+          const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+          if (!existentes.has(numero) && !novos.includes(numero)) novos.push(numero);
+        }
+        await supabase.from('rifa_numeros').insert(novos.map(numero => ({ cotista_id: cotistaId, numero, ativo: true })));
+      } else if (diferenca < 0) {
+        // Remove números excedentes mantendo sempre pelo menos 1
+        const paraRemover = numerosAtuais
+          .sort(() => Math.random() - 0.5)
+          .slice(0, Math.min(Math.abs(diferenca), numerosAtuais.length - 1));
+        if (paraRemover.length > 0) {
+          await supabase.from('rifa_numeros').delete().in('id', paraRemover.map(n => n.id));
+        }
+      }
+      await get().loadRifaNumeros();
+    } catch (error) {
+      console.error('Erro ao ajustar números:', error);
+      throw error;
+    }
+  },
+
+  // Realiza sorteio mensal baseado no resultado da Loteria Federal
+  realizarSorteio: async (mesReferencia, dataSorteio, resultadoFederal) => {
+    try {
+      const { rifaNumeros, cotistas } = get();
+      const participantes = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin);
+      let numerosAtivos = [...(rifaNumeros || []).filter(n => n.ativo)];
+
+      const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
+      const valorArrecadado = totalCotas * 20; // R$20 por cota
+
+      // Verifica vencedores pelos últimos 3 dígitos dos prêmios federais
+      const premiosFederal = [
+        { nome: 'primeiro', numero: resultadoFederal.primeiro, valor: 200 },
+        { nome: 'segundo',  numero: resultadoFederal.segundo,  valor: 100 },
+        { nome: 'terceiro', numero: resultadoFederal.terceiro, valor: 50 }
+      ];
+
+      const vencedores = [];
+      for (const premio of premiosFederal) {
+        const ultimos3 = premio.numero.slice(-3).padStart(3, '0');
+        const match = numerosAtivos.find(n => n.numero === ultimos3);
+        if (match) {
+          vencedores.push({ posicao: premio.nome, cotista_id: match.cotista_id, numero: ultimos3, valor: premio.valor });
+          numerosAtivos = numerosAtivos.filter(n => n.id !== match.id); // evita ganhar 2x com mesmo número
+        }
+      }
+
+      const totalPremiosGanhos = vencedores.reduce((sum, v) => sum + v.valor, 0);
+      const valorFinalCaixinha = valorArrecadado - totalPremiosGanhos;
+
+      await supabase.from('rifa_sorteios').insert({
+        mes_referencia: mesReferencia, data_sorteio: dataSorteio,
+        cotista_vencedor_id: vencedores[0]?.cotista_id || null,
+        valor_arrecadado: valorArrecadado, valor_premio: totalPremiosGanhos,
+        valor_caixinha: valorFinalCaixinha, vencedores
+      });
+
+      // 1º e 2º lugar perdem números (3º mantém)
+      for (const vencedor of vencedores) {
+        if (vencedor.posicao === 'primeiro' || vencedor.posicao === 'segundo') {
+          const numerosDoVencedor = (rifaNumeros || []).filter(n => n.cotista_id === vencedor.cotista_id && n.ativo);
+          if (numerosDoVencedor.length <= 1) continue;
+          await supabase.from('rifa_numeros').delete()
+            .eq('cotista_id', vencedor.cotista_id).eq('numero', vencedor.numero);
+          const restantes = numerosDoVencedor.filter(n => n.numero !== vencedor.numero);
+          const qtdRemover = Math.min(3, restantes.length - 1);
+          if (qtdRemover > 0) {
+            const ids = restantes.sort(() => Math.random() - 0.5).slice(0, qtdRemover).map(n => n.id);
+            await supabase.from('rifa_numeros').delete().in('id', ids);
+          }
+        }
+      }
+
+      await Promise.all([get().loadRifaNumeros(), get().loadCotistas(), get().loadRifaSorteios()]);
+      return { vencedores, totalPremios: totalPremiosGanhos, caixinha: valorFinalCaixinha };
+    } catch (error) {
+      console.error('Erro ao realizar sorteio:', error);
+      throw error;
+    }
+  },
+
+  // =====================================================
+  // CARREGAMENTO INICIAL — carrega todos os dados paralelo
+  // =====================================================
 
   loadAllData: async () => {
     set({ isLoading: true });
-    
     try {
       await Promise.all([
         get().loadConfiguracoes(),
         get().loadCotistas(),
         get().loadMensalidades(),
         get().loadEmprestimos(),
-        get().loadRifas(),
         get().loadCdi(),
         get().loadComprovantes(),
         get().loadRifaNumeros(),
@@ -933,405 +823,28 @@ export const useAppStore = create((set, get) => ({
     } finally {
       set({ isLoading: false });
     }
-  },
-
-  // ===== HELPERS =====
-  // Centraliza filtro de admins — evita repetir .filter(c => !c.is_admin) em toda página
-  getAdminIds: () => {
-    const { cotistas } = get();
-    return (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-  },
-
-  getCotistasAtivos: () => {
-    const { cotistas } = get();
-    return (cotistas || []).filter(c => !c.is_admin && c.status === 'ativo');
-  },
-
-  // ===== CÁLCULOS =====
-  getTotalCotas: () => {
-    // Exclui admins — cotas de admin não entram na distribuição
-    const { cotistas } = get();
-    return (cotistas || []).filter(c => !c.is_admin).reduce((sum, c) => sum + (c.cotas || 0), 0);
-  },
-
-  getTotalInvestido: () => {
-    const { mensalidades, cotistas } = get();
-    // IDs dos admins para excluir
-    const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-    
-    let total = 0;
-    Object.values(mensalidades).forEach(mes => {
-      if (Array.isArray(mes)) {
-        mes.forEach(m => {
-          // Excluir mensalidades de admins
-          if (!adminIds.includes(m.cotista_id)) {
-            total += Number(m.valor_pago || 0);
-          }
-        });
-      }
-    });
-    return total;
-  },
-
-  getInvestidoByCotista: (cotistaId) => {
-    const { mensalidades } = get();
-    // Usa valor_devido (só mensalidade, sem rifa) em meses pago/parcial
-    // Mesma lógica do ExtratoCotista — garante consistência entre admin e cotista
-    return Object.values(mensalidades)
-      .flat()
-      .filter(m =>
-        m.cotista_id === cotistaId &&
-        (m.status === 'pago' || m.status === 'parcial')
-      )
-      .reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
-  },
-
-  getLimiteEmprestimo: (cotistaId, modalidade = 'normal') => {
-    const investido = get().getInvestidoByCotista(cotistaId);
-    const { cotistas, emprestimos } = get();
-    const cotista = cotistas.find(c => c.id === cotistaId);
-    
-    // Usa limite conforme modalidade
-    let percentual;
-    if (modalidade === 'caixinha') {
-      percentual = (cotista?.limite_emprestimo_caixinha || 100) / 100;
-    } else {
-      percentual = (cotista?.limite_emprestimo || 80) / 100;
-    }
-    
-    const limiteTotal = investido * percentual;
-    
-    // Descontar empréstimos ativos e pendentes DA MESMA MODALIDADE
-    const emprestimosAtivos = (emprestimos || [])
-      .filter(e => 
-        e.cotista_id === cotistaId && 
-        (e.status === 'ativo' || e.status === 'pendente') &&
-        (e.modalidade || 'normal') === modalidade
-      )
-      .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-    
-    return Math.max(0, limiteTotal - emprestimosAtivos);
-  },
-
-  // ===== SISTEMA DE RIFAS =====
-  rifaNumeros: [],
-  rifaSorteios: [],
-
-  // Carregar números da rifa
-  loadRifaNumeros: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('rifa_numeros')
-        .select('*, cotista:cotistas(id, nome)')
-        .eq('ativo', true)
-        .order('numero');
-      
-      if (error) throw error;
-      set({ rifaNumeros: data || [] });
-      return data;
-    } catch (error) {
-      console.error('Erro ao carregar números da rifa:', error);
-      return [];
-    }
-  },
-
-  // Carregar sorteios
-  loadRifaSorteios: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('rifa_sorteios')
-        .select('*, cotista_vencedor:cotistas(id, nome)')
-        .order('mes_referencia', { ascending: false });
-      
-      if (error) throw error;
-      set({ rifaSorteios: data || [] });
-      return data;
-    } catch (error) {
-      console.error('Erro ao carregar sorteios:', error);
-      return [];
-    }
-  },
-
-  // Obter números de um cotista
-  getNumerosRifaByCotista: (cotistaId) => {
-    const { rifaNumeros } = get();
-    return (rifaNumeros || []).filter(n => n.cotista_id === cotistaId);
-  },
-
-  // Ativar rifa para cotista (gera números)
-  ativarRifaCotista: async (cotistaId, cotas) => {
-    try {
-      const quantidade = cotas * 5; // 5 números por cota
-      
-      // Gerar números únicos
-      const numerosGerados = [];
-      const { rifaNumeros } = get();
-      const numerosExistentes = new Set((rifaNumeros || []).map(n => n.numero));
-      
-      while (numerosGerados.length < quantidade) {
-        const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-        if (!numerosExistentes.has(numero) && !numerosGerados.includes(numero)) {
-          numerosGerados.push(numero);
-        }
-      }
-      
-      // Inserir números no banco
-      const numerosParaInserir = numerosGerados.map(numero => ({
-        cotista_id: cotistaId,
-        numero,
-        ativo: true
-      }));
-      
-      const { error: insertError } = await supabase
-        .from('rifa_numeros')
-        .insert(numerosParaInserir);
-      
-      if (insertError) throw insertError;
-      
-      // Atualizar flag do cotista
-      const { error: updateError } = await supabase
-        .from('cotistas')
-        .update({ participa_rifa: true })
-        .eq('id', cotistaId);
-      
-      if (updateError) throw updateError;
-      
-      // Recarregar dados
-      await get().loadRifaNumeros();
-      await get().loadCotistas();
-      
-      return numerosGerados;
-    } catch (error) {
-      console.error('Erro ao ativar rifa:', error);
-      throw error;
-    }
-  },
-
-  // Desativar rifa para cotista (deleta números)
-  desativarRifaCotista: async (cotistaId) => {
-    try {
-      // Deletar todos os números do cotista
-      const { error: deleteError } = await supabase
-        .from('rifa_numeros')
-        .delete()
-        .eq('cotista_id', cotistaId);
-      
-      if (deleteError) throw deleteError;
-      
-      // Atualizar flag do cotista
-      const { error: updateError } = await supabase
-        .from('cotistas')
-        .update({ participa_rifa: false })
-        .eq('id', cotistaId);
-      
-      if (updateError) throw updateError;
-      
-      // Recarregar dados
-      await get().loadRifaNumeros();
-      await get().loadCotistas();
-    } catch (error) {
-      console.error('Erro ao desativar rifa:', error);
-      throw error;
-    }
-  },
-
-  // Ajustar números quando cotas mudam
-  ajustarNumerosRifa: async (cotistaId, cotasAntigas, cotasNovas) => {
-    try {
-      const numerosAtuais = get().getNumerosRifaByCotista(cotistaId);
-      const numerosNecessarios = cotasNovas * 5; // 5 números por cota
-      const diferenca = numerosNecessarios - numerosAtuais.length;
-      
-      if (diferenca > 0) {
-        // Precisa gerar mais números
-        const { rifaNumeros } = get();
-        const numerosExistentes = new Set((rifaNumeros || []).map(n => n.numero));
-        const numerosGerados = [];
-        
-        while (numerosGerados.length < diferenca) {
-          const numero = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-          if (!numerosExistentes.has(numero) && !numerosGerados.includes(numero)) {
-            numerosGerados.push(numero);
-          }
-        }
-        
-        const numerosParaInserir = numerosGerados.map(numero => ({
-          cotista_id: cotistaId,
-          numero,
-          ativo: true
-        }));
-        
-        await supabase.from('rifa_numeros').insert(numerosParaInserir);
-      } else if (diferenca < 0) {
-        // Precisa remover números — batch delete em vez de loop
-        const numerosParaRemover = numerosAtuais
-          .sort(() => Math.random() - 0.5)
-          .slice(0, Math.abs(diferenca));
-        
-        const idsParaRemover = numerosParaRemover.map(n => n.id);
-        if (idsParaRemover.length > 0) {
-          await supabase.from('rifa_numeros').delete().in('id', idsParaRemover);
-        }
-      }
-      
-      await get().loadRifaNumeros();
-    } catch (error) {
-      console.error('Erro ao ajustar números:', error);
-      throw error;
-    }
-  },
-
-  // Realizar sorteio
-  realizarSorteio: async (mesReferencia, dataSorteio, resultadoFederal) => {
-    try {
-      const { rifaNumeros, cotistas } = get();
-      
-      // Participantes ativos
-      const participantes = (cotistas || []).filter(c => c.participa_rifa && !c.is_admin);
-      let numerosAtivos = [...(rifaNumeros || []).filter(n => n.ativo)];
-      
-      // Calcular valores
-      const totalCotas = participantes.reduce((sum, c) => sum + (c.cotas || 0), 0);
-      const valorArrecadado = totalCotas * 20; // R$ 20 por cota
-      
-      // Prêmios fixos
-      const premiosValores = [200, 100, 50]; // 1º, 2º, 3º lugar
-      const totalPremios = premiosValores.reduce((a, b) => a + b, 0); // R$ 350
-      const valorCaixinha = valorArrecadado - totalPremios;
-      
-      // Extrair números da Federal (3 prêmios: 1º, 2º, 3º)
-      const premiosFederal = [
-        { nome: 'primeiro', numero: resultadoFederal.primeiro, valor: 200 },
-        { nome: 'segundo', numero: resultadoFederal.segundo, valor: 100 },
-        { nome: 'terceiro', numero: resultadoFederal.terceiro, valor: 50 }
-      ];
-      
-      const vencedores = [];
-      const premiosVerificados = [];
-      
-      // Verificar cada prêmio (pode ter até 3 vencedores)
-      for (const premio of premiosFederal) {
-        // Extrair últimos 3 dígitos e garantir formato com zeros à esquerda
-        const ultimos3 = premio.numero.slice(-3).padStart(3, '0');
-        premiosVerificados.push({ premio: premio.numero, numero: ultimos3, valor: premio.valor });
-        
-        const match = numerosAtivos.find(n => n.numero === ultimos3);
-        if (match) {
-          vencedores.push({
-            posicao: premio.nome,
-            cotista_id: match.cotista_id,
-            numero: ultimos3,
-            valor: premio.valor
-          });
-          
-          // Remover número usado para não ganhar 2x com mesmo número
-          numerosAtivos = numerosAtivos.filter(n => n.id !== match.id);
-        }
-      }
-      
-      // Calcular totais
-      const totalPremiosGanhos = vencedores.reduce((sum, v) => sum + v.valor, 0);
-      const valorFinalCaixinha = valorArrecadado - totalPremiosGanhos;
-      
-      // Registrar sorteio
-      const sorteioData = {
-        mes_referencia: mesReferencia,
-        data_sorteio: dataSorteio,
-        numero_vencedor: vencedores.length > 0 ? vencedores.map(v => v.numero).join(', ') : null,
-        cotista_vencedor_id: vencedores.length > 0 ? vencedores[0].cotista_id : null, // Primeiro vencedor
-        valor_arrecadado: valorArrecadado,
-        valor_premio: totalPremiosGanhos,
-        valor_caixinha: valorFinalCaixinha,
-        resultado_federal: resultadoFederal,
-        premios_verificados: premiosVerificados,
-        vencedores: vencedores // Lista completa de vencedores
-      };
-      
-      const { error: sorteioError } = await supabase
-        .from('rifa_sorteios')
-        .insert(sorteioData);
-      
-      if (sorteioError) throw sorteioError;
-      
-      // Processar vencedores do 1º e 2º lugar (perdem números)
-      // 3º lugar NÃO perde números
-      for (const vencedor of vencedores) {
-        // Só aplica regra para 1º e 2º lugar
-        if (vencedor.posicao === 'primeiro' || vencedor.posicao === 'segundo') {
-          // Buscar números atuais do vencedor
-          const numerosDoVencedor = (rifaNumeros || []).filter(
-            n => n.cotista_id === vencedor.cotista_id && n.ativo
-          );
-          
-          // Se tem apenas 1 número, NÃO aplica a regra
-          if (numerosDoVencedor.length <= 1) {
-            continue;
-          }
-          
-          // Remover número vencedor
-          await supabase
-            .from('rifa_numeros')
-            .delete()
-            .eq('cotista_id', vencedor.cotista_id)
-            .eq('numero', vencedor.numero);
-          
-          // Calcular quantos números aleatórios remover (máximo 3, mas mínimo 1 deve sobrar)
-          const numerosRestantes = numerosDoVencedor.filter(n => n.numero !== vencedor.numero);
-          const quantidadeRemover = Math.min(3, numerosRestantes.length - 1); // -1 para garantir que sobre pelo menos 1
-          
-          if (quantidadeRemover > 0) {
-            const numerosParaRemover = numerosRestantes
-              .sort(() => Math.random() - 0.5)
-              .slice(0, quantidadeRemover);
-            
-            const idsParaRemover = numerosParaRemover.map(n => n.id);
-            if (idsParaRemover.length > 0) {
-              await supabase.from('rifa_numeros').delete().in('id', idsParaRemover);
-            }
-          }
-        }
-      }
-      
-      // Recarregar dados
-      await get().loadRifaNumeros();
-      await get().loadCotistas();
-      await get().loadRifaSorteios();
-      
-      return {
-        vencedores,
-        totalPremios: totalPremiosGanhos,
-        caixinha: valorFinalCaixinha
-      };
-    } catch (error) {
-      console.error('Erro ao realizar sorteio:', error);
-      throw error;
-    }
   }
 }));
 
-// ==================== UI STORE ====================
+// =====================================================
+// UI STORE — estado da interface (modais, toasts, sidebar)
+// =====================================================
 export const useUIStore = create((set) => ({
   showPixModal: false,
   showChangePasswordModal: false,
-  showNotifications: false,
   currentTab: '',
   sidebarOpen: true,
-  
-  // Toast global
   toast: null, // { tipo: 'success'|'error'|'info'|'warning', mensagem: string }
-  
+
   setShowPixModal: (show) => set({ showPixModal: show }),
   setShowChangePasswordModal: (show) => set({ showChangePasswordModal: show }),
-  setShowNotifications: (show) => set({ showNotifications: show }),
   setCurrentTab: (tab) => set({ currentTab: tab }),
   setSidebarOpen: (open) => set({ sidebarOpen: open }),
-  
-  // Toast helpers
+
+  // Exibe toast temporário na interface
   showToast: (mensagem, tipo = 'success', duracao = 3000) => {
     set({ toast: { tipo, mensagem } });
-    if (duracao > 0) {
-      setTimeout(() => set({ toast: null }), duracao);
-    }
+    if (duracao > 0) setTimeout(() => set({ toast: null }), duracao);
   },
   hideToast: () => set({ toast: null })
 }));

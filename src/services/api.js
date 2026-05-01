@@ -162,13 +162,8 @@ export const emprestimosApi = {
   async getAll() {
     const { data, error } = await supabase
       .from('emprestimos')
-      .select(`
-        *,
-        cotista:cotistas(id, nome, cotas),
-        aprovador:cotistas!emprestimos_aprovado_por_fkey(id, nome)
-      `)
+      .select('*, cotista:cotistas!emprestimos_cotista_id_fkey(id, nome, cotas)')
       .order('created_at', { ascending: false });
-    
     if (error) throw error;
     return data;
   },
@@ -198,22 +193,18 @@ export const emprestimosApi = {
     return data;
   },
 
-  async solicitar({ cotista_id, valor, tipo, parcelas, taxa_juros, chave_pix, cotista_nome, modalidade = 'normal' }) {
+  async solicitar({ cotista_id, valor, taxa_juros, chave_pix, cotista_nome, modalidade = 'normal' }) {
     const valor_juros = valor * (taxa_juros / 100);
     const valor_total = valor + valor_juros;
-    const valor_parcela = tipo === 'parcelado' ? valor_total / parcelas : valor_total;
 
     const { data, error } = await supabase
       .from('emprestimos')
       .insert({
         cotista_id,
         valor_emprestimo: valor,
-        tipo,
-        parcelas: tipo === 'parcelado' ? parcelas : 1,
         taxa_juros,
         valor_juros,
         valor_total,
-        valor_parcela,
         chave_pix,
         modalidade,
         status: 'pendente'
@@ -285,38 +276,7 @@ export const emprestimosApi = {
   }
 };
 
-// ==================== RIFAS ====================
-export const rifasApi = {
-  async getAll() {
-    const { data, error } = await supabase
-      .from('rifas')
-      .select('*')
-      .order('data', { ascending: false });
-    
-    if (error) throw error;
-    return data;
-  },
-
-  async create({ descricao, valor, data }) {
-    const { data: rifa, error } = await supabase
-      .from('rifas')
-      .insert({ descricao, valor, data })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return rifa;
-  },
-
-  async delete(id) {
-    const { error } = await supabase
-      .from('rifas')
-      .delete()
-      .eq('id', id);
-    
-    if (error) throw error;
-  }
-};
+// Tabela 'rifas' removida do banco — rifas agora são gerenciadas via rifa_sorteios e mensalidades
 
 // ==================== CDI ====================
 export const cdiApi = {
@@ -387,96 +347,41 @@ export const configApi = {
   }
 };
 
-// ==================== NOTIFICAÇÕES ====================
-export const notificacoesApi = {
-  async getByCotista(cotistaId) {
-    const { data, error } = await supabase
-      .from('notificacoes')
-      .select('*')
-      .eq('cotista_id', cotistaId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    
-    if (error) throw error;
-    return data;
-  },
-
-  async getNaoLidas(cotistaId) {
-    const { data, error } = await supabase
-      .from('notificacoes')
-      .select('*')
-      .eq('cotista_id', cotistaId)
-      .eq('lida', false)
-      .order('created_at', { ascending: false });
-    
-    if (error) throw error;
-    return data;
-  },
-
-  async marcarComoLida(id) {
-    const { error } = await supabase
-      .from('notificacoes')
-      .update({ lida: true, data_leitura: new Date().toISOString() })
-      .eq('id', id);
-    
-    if (error) throw error;
-  },
-
-  async marcarTodasComoLidas(cotistaId) {
-    const { error } = await supabase
-      .from('notificacoes')
-      .update({ lida: true, data_leitura: new Date().toISOString() })
-      .eq('cotista_id', cotistaId)
-      .eq('lida', false);
-    
-    if (error) throw error;
-  },
-
-  async criar({ cotista_id, tipo, titulo, mensagem, dados }) {
-    const { data, error } = await supabase
-      .from('notificacoes')
-      .insert({ cotista_id, tipo, titulo, mensagem, dados })
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
-  }
-};
+// Tabela notificacoes removida do banco
 
 // ==================== DASHBOARD ====================
 export const dashboardApi = {
   async getResumoGeral() {
-    const [cotistas, mensalidades, emprestimos, rifas, cdi] = await Promise.all([
+    // Carrega apenas os dados necessários para o Dashboard
+    const [cotistas, mensalidades, jurosEmprestimo, rifaSorteios, cdi] = await Promise.all([
       supabase.from('cotistas').select('id, cotas, is_admin').eq('status', 'ativo'),
       supabase.from('mensalidades').select('valor_pago, valor_devido, cotista_id'),
-      supabase.from('emprestimos').select('valor_emprestimo, valor_juros, status, cotista_id'),
-      supabase.from('rifas').select('valor'),
+      supabase.from('juros_emprestimo').select('valor_juros, modalidade'),
+      supabase.from('rifa_sorteios').select('valor_arrecadado, valor_premio, valor_caixinha'),
       supabase.from('cdi').select('valor')
     ]);
 
-    // IDs dos admins para excluir
     const adminIds = (cotistas.data || []).filter(c => c.is_admin).map(c => c.id);
-    
-    // Filtrar apenas cotistas não-admin
     const cotistasNaoAdmin = (cotistas.data || []).filter(c => !c.is_admin);
     const mensalidadesNaoAdmin = (mensalidades.data || []).filter(m => !adminIds.includes(m.cotista_id));
-    const emprestimosNaoAdmin = (emprestimos.data || []).filter(e => !adminIds.includes(e.cotista_id));
 
     const totalCotas = cotistasNaoAdmin.reduce((sum, c) => sum + (c.cotas || 0), 0);
+
+    // Total investido = soma do valor_devido (mensalidades pagas, sem rifa)
     const totalInvestido = mensalidadesNaoAdmin.reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
-    const totalDevido = mensalidadesNaoAdmin.reduce((sum, m) => sum + Number(m.valor_devido || 0), 0);
-    const totalEmprestimosAtivos = emprestimosNaoAdmin.filter(e => e.status === 'ativo').reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-    const totalJuros = emprestimosNaoAdmin.filter(e => e.status === 'pago').reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-    const totalRifas = (rifas.data || []).reduce((sum, r) => sum + Number(r.valor || 0), 0);
+
+    // Total juros = soma de todos os juros de empréstimo registrados
+    const totalJuros = (jurosEmprestimo.data || []).reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
+
+    // Total rifas = sobra de caixinha dos sorteios (arrecadado - prêmios)
+    const totalRifas = (rifaSorteios.data || []).reduce((sum, s) => sum + Number(s.valor_caixinha || 0), 0);
+
     const totalCDI = (cdi.data || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
 
     return {
       totalCotas,
       totalCotistas: cotistasNaoAdmin.length,
       totalInvestido,
-      totalDevido,
-      totalEmprestimosAtivos,
       totalJuros,
       totalRifas,
       totalCDI,
@@ -489,9 +394,7 @@ export default {
   cotistas: cotistasApi,
   mensalidades: mensalidadesApi,
   emprestimos: emprestimosApi,
-  rifas: rifasApi,
   cdi: cdiApi,
   config: configApi,
-  notificacoes: notificacoesApi,
   dashboard: dashboardApi
 };

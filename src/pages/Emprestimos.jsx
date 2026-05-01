@@ -91,7 +91,8 @@ const Emprestimos = () => {
       const cotistaEmprestimo = cotistas.find(c => c.id === e.cotista_id);
       if (cotistaEmprestimo?.is_admin) return false;
       
-      const matchSearch = e.cotista?.nome?.toLowerCase().includes(search.toLowerCase());
+      const nomeCotista = e.cotista?.nome || cotistas.find(c => c.id === e.cotista_id)?.nome || '';
+      const matchSearch = nomeCotista.toLowerCase().includes(search.toLowerCase());
       const matchStatus = filtroStatus === 'todos' || e.status === filtroStatus;
       
       // Filtro por mês/ano (baseado na data de criação)
@@ -389,24 +390,22 @@ const Emprestimos = () => {
 
     setLoading(true);
     try {
-      const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
-      const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
-      const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
+      // taxa: à vista = juros_vista (20%), parcelado = juros_parcelado (30%)
+      const taxa = formData.tipo === 'vista'
+        ? parseFloat(configuracoes?.juros_vista || 20)
+        : parseFloat(configuracoes?.juros_parcelado || 30);
       const valorJuros = valor * (taxa / 100);
       const valorTotal = valor + valorJuros;
-      const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) : 1;
 
       const { error: insertError } = await supabase
         .from('emprestimos')
         .insert({
           cotista_id: formData.cotista_id,
           valor_emprestimo: valor,
-          tipo: formData.tipo,
-          parcelas,
           taxa_juros: taxa,
           valor_juros: valorJuros,
           valor_total: valorTotal,
-          valor_parcela: valorTotal / parcelas,
+          modalidade: formData.modalidade || 'normal',
           status: 'pendente'
         });
 
@@ -432,23 +431,20 @@ const Emprestimos = () => {
 
     setLoading(true);
     try {
-      const jurosVista = parseFloat(configuracoes?.juros_vista || 20);
-      const jurosParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
-      const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
+      const taxa = formData.tipo === 'vista'
+        ? parseFloat(configuracoes?.juros_vista || 20)
+        : parseFloat(configuracoes?.juros_parcelado || 30);
       const valorJuros = valor * (taxa / 100);
       const valorTotal = valor + valorJuros;
-      const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) : 1;
 
       const { error: updateError } = await supabase
         .from('emprestimos')
         .update({
           valor_emprestimo: valor,
-          tipo: formData.tipo,
-          parcelas,
           taxa_juros: taxa,
           valor_juros: valorJuros,
           valor_total: valorTotal,
-          valor_parcela: valorTotal / parcelas
+          modalidade: formData.modalidade || 'normal'
         })
         .eq('id', selectedEmprestimo.id);
 
@@ -579,7 +575,7 @@ const Emprestimos = () => {
     const taxa = formData.tipo === 'vista' ? jurosVista : jurosParcelado;
     const valorJuros = valor * (taxa / 100);
     const valorTotal = valor + valorJuros;
-    const parcelas = formData.tipo === 'parcelado' ? parseInt(formData.parcelas) || 1 : 1;
+    const parcelas = 1; // sistema não usa mais parcelas fixas
     return { taxa, valorJuros, valorTotal, valorParcela: valorTotal / parcelas };
   };
 
@@ -1093,7 +1089,7 @@ const Emprestimos = () => {
                       <p className="font-bold text-xl text-blue-700">{formatCurrency(selectedEmprestimo.valor_total)}</p>
                       {Number(selectedEmprestimo.taxa_juros) !== Number(configuracoes?.juros_vista || 20) && (
                         <p className="text-sm text-blue-600">
-                          {selectedEmprestimo.parcelas}x de {formatCurrency(selectedEmprestimo.valor_parcela)}
+                          {formatCurrency(selectedEmprestimo.valor_total)} total
                         </p>
                       )}
                     </div>
