@@ -394,7 +394,11 @@ export const useAppStore = create((set, get) => ({
           }
         }
       } else if (comprovante.tipo === 'emprestimo') {
-        // Empréstimo: SEMPRE atualiza (múltiplos pagamentos permitidos)
+        // Empréstimo: só processa se ainda não foi aprovado (evita duplo processamento)
+        // Usa jaTemAprovado (calculado ANTES do update de status) para detectar duplicata real
+        if (jaTemAprovado) {
+          console.warn('Comprovante já aprovado — processamento ignorado.');
+        } else {
         const { data: emprestimo, error: fetchError } = await supabase
           .from('emprestimos')
           .select('*')
@@ -452,22 +456,38 @@ export const useAppStore = create((set, get) => ({
           }
           
           // Registrar juros na tabela juros_emprestimo
+          // Proteção anti-duplicata: verifica se já existe registro para esse comprovante
           if (valorJuros > 0) {
             const mesRef = new Date().toISOString().slice(0, 7);
-            await supabase
-              .from('juros_emprestimo')
-              .insert({
-                emprestimo_id: emprestimo.id,
-                cotista_id: emprestimo.cotista_id,
-                comprovante_id: comprovanteId,
-                modalidade,
-                tipo_pagamento: tipoPagamento,
-                valor_juros: valorJuros,
-                valor_principal_abatido: principalAbatido,
-                taxa_juros: taxaJuros,
-                mes_referencia: mesRef,
-                registrado_por: adminId
-              });
+            let jaRegistrado = false;
+
+            if (comprovanteId) {
+              const { data: existing } = await supabase
+                .from('juros_emprestimo')
+                .select('id')
+                .eq('comprovante_id', comprovanteId)
+                .maybeSingle();
+              jaRegistrado = !!existing;
+            }
+
+            if (!jaRegistrado) {
+              await supabase
+                .from('juros_emprestimo')
+                .insert({
+                  emprestimo_id: emprestimo.id,
+                  cotista_id: emprestimo.cotista_id,
+                  comprovante_id: comprovanteId,
+                  modalidade,
+                  tipo_pagamento: tipoPagamento,
+                  valor_juros: valorJuros,
+                  valor_principal_abatido: principalAbatido,
+                  taxa_juros: taxaJuros,
+                  mes_referencia: mesRef,
+                  registrado_por: adminId
+                });
+            } else {
+              console.warn(`Juros já registrados para comprovante ${comprovanteId} — insert ignorado.`);
+            }
           }
           
           // Calcular novo vencimento: vencimento atual + 1 mês
@@ -481,6 +501,17 @@ export const useAppStore = create((set, get) => ({
             }
           }
           
+          // Status do comprovante reflete o tipo de pagamento
+          const statusComprovante = tipoPagamento === 'quitacao' ? 'aprovado'
+            : tipoPagamento === 'soJuros' ? 'juros'
+            : 'parcial';
+
+          // Atualizar status do comprovante com o tipo correto
+          await supabase
+            .from('comprovantes')
+            .update({ status: statusComprovante })
+            .eq('id', comprovanteId);
+
           const dadosUpdate = {
             principal_restante: novoPrincipal,
             status: novoStatus,
@@ -499,6 +530,7 @@ export const useAppStore = create((set, get) => ({
         } else {
           console.error('Empréstimo não encontrado com ID:', comprovante.referencia_id);
         }
+        } // end else (comprovante não aprovado)
       }
 
       await get().loadComprovantes();
@@ -515,6 +547,61 @@ export const useAppStore = create((set, get) => ({
 
   rejeitarComprovante: async (comprovanteId, adminId, motivo) => {
     try {
+      // Buscar comprovante para saber se estava aprovado
+      const { data: comprovante } = await supabase
+        .from('comprovantes')
+        .select('*')
+        .eq('id', comprovanteId)
+        .single();
+
+      // Se estava aprovado: desfaz o efeito no empréstimo
+      if (['aprovado', 'juros', 'parcial'].includes(comprovante?.status) && comprovante?.tipo === 'emprestimo') {
+        // Buscar registro de juros vinculado a esse comprovante
+        const { data: jurosReg } = await supabase
+          .from('juros_emprestimo')
+          .select('*')
+          .eq('comprovante_id', comprovanteId)
+          .maybeSingle();
+
+        if (jurosReg) {
+          // Buscar estado atual do empréstimo
+          const { data: emp } = await supabase
+            .from('emprestimos')
+            .select('*')
+            .eq('id', comprovante.referencia_id)
+            .single();
+
+          if (emp) {
+            const principalRestaurado = Number(emp.principal_restante || 0) + Number(jurosReg.valor_principal_abatido || 0);
+
+            // Recuar data_vencimento em 1 mês (desfaz o avanço feito na aprovação)
+            let vencimentoRestaurado = emp.data_vencimento;
+            if (emp.data_vencimento && jurosReg.tipo_pagamento !== 'quitacao') {
+              const v = new Date(emp.data_vencimento);
+              v.setMonth(v.getMonth() - 1);
+              vencimentoRestaurado = v.toISOString().split('T')[0];
+            }
+
+            await supabase
+              .from('emprestimos')
+              .update({
+                principal_restante: principalRestaurado,
+                status: 'ativo',
+                data_quitacao: null,
+                data_vencimento: vencimentoRestaurado
+              })
+              .eq('id', comprovante.referencia_id);
+
+            // Remover registro de juros vinculado
+            await supabase
+              .from('juros_emprestimo')
+              .delete()
+              .eq('comprovante_id', comprovanteId);
+          }
+        }
+      }
+
+      // Marcar comprovante como rejeitado
       const { error } = await supabase
         .from('comprovantes')
         .update({
@@ -524,10 +611,12 @@ export const useAppStore = create((set, get) => ({
           data_validacao: new Date().toISOString()
         })
         .eq('id', comprovanteId);
-      
+
       if (error) throw error;
-      
+
       await get().loadComprovantes();
+      await get().loadEmprestimos();
+      await get().loadJurosEmprestimo();
       return true;
     } catch (error) {
       console.error('Erro ao rejeitar comprovante:', error);
@@ -705,35 +794,9 @@ export const useAppStore = create((set, get) => ({
   // ===== RIFAS =====
   setRifas: (rifas) => set({ rifas }),
 
-  loadRifas: async () => {
-    try {
-      const { data, error } = await supabase
-        .from('rifas')
-        .select('*')
-        .order('data', { ascending: false });
-      
-      if (error) throw error;
-      set({ rifas: data || [] });
-      return data;
-    } catch (error) {
-      console.error('Erro ao carregar rifas:', error);
-      return [];
-    }
-  },
-
-  addRifa: async (rifa) => {
-    try {
-      const { error } = await supabase
-        .from('rifas')
-        .insert(rifa);
-      
-      if (error) throw error;
-      await get().loadRifas();
-    } catch (error) {
-      console.error('Erro ao adicionar rifa:', error);
-      throw error;
-    }
-  },
+  // tabela 'rifas' removida do banco — mantido stub para não quebrar referências
+  loadRifas: async () => [],
+  addRifa: async () => {},
 
   // ===== CDI =====
   setCdi: (cdi) => set({ cdi }),
@@ -912,9 +975,8 @@ export const useAppStore = create((set, get) => ({
 
   getInvestidoByCotista: (cotistaId) => {
     const { mensalidades } = get();
-
     // Usa valor_devido (só mensalidade, sem rifa) em meses pago/parcial
-    // Mesma lógica do ExtratoCotista.jsx — garante consistência entre admin e cotista
+    // Mesma lógica do ExtratoCotista — garante consistência entre admin e cotista
     return Object.values(mensalidades)
       .flat()
       .filter(m =>

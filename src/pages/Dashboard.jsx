@@ -79,6 +79,7 @@ const Dashboard = () => {
   const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
   
   // ===== SALDO EM CONTA (Caixa Real) =====
+  // Saldo real disponível = tudo que entrou (patrimônio) menos o que está emprestado e os prêmios pagos
   const saldoEmConta = patrimonioTotal - emprestimosAtivos - premiosRifaPagos;
   
   // Empréstimos pendentes de aprovação (excluindo admins)

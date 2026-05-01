@@ -36,6 +36,8 @@ const UserArea = () => {
   const [showPixCopiaCola, setShowPixCopiaCola] = useState(false);
   const [pixData, setPixData] = useState({ codigo: '', valor: 0, descricao: '' });
   const [pixCopiado, setPixCopiado] = useState(false);
+  const [filtroMensalidade, setFiltroMensalidade] = useState('pendente');
+  const [filtroEmprestimo, setFiltroEmprestimo] = useState('ativo');
 
   // Função para mostrar erro em pop-up
   const showError = (message) => {
@@ -148,8 +150,10 @@ const UserArea = () => {
   const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
   const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
   
-  const bonusRifas = totalRifaAtivos > 0 
-    ? (meuValorRifaPago / totalRifaAtivos) * sobraCaixinhaRifa
+  // bonusRifa = do que o cotista pagou, a proporção que NÃO foi para prêmio
+  const percentualSobra = totalRifaArrecadado > 0 ? sobraCaixinhaRifa / totalRifaArrecadado : 0;
+  const bonusRifas = (cotista?.participa_rifa && totalRifaArrecadado > 0)
+    ? meuValorRifaPago * percentualSobra
     : 0;
   
   // Bônus CDI: proporcional às cotas
@@ -182,6 +186,7 @@ const UserArea = () => {
   });
   
   const jurosRecebidos = juros60 + juros40 + jurosCaixinha;
+  // premiosRifaGanhos não entra no saldo — recebido no ato do sorteio
   const saldoFinal = investido + jurosRecebidos + bonusRifas + bonusCDI + bonusJurosAtraso;
   
   // Cálculo do valor do empréstimo solicitado
@@ -232,43 +237,29 @@ const UserArea = () => {
     finally { setEnviando(false); setTimeout(() => setMensagem({ tipo: '', texto: '' }), 5000); }
   };
 
-  // ─── Calcula juros de atraso por meses completos + dias corridos ───
-  // Regra:
-  //   - O mês do vencimento sempre conta como 1 mês (30% sobre principal)
-  //   - Cada mês completo adicional que passa: +30%
-  //   - Dias corridos no mês atual: +1%/dia
-  //   - Tudo incide sobre o principal original (sem juros sobre juros)
+  // Calcular valores para pagamento de empréstimo
+  // ── Juros de atraso: meses completos (30%/mês) + dias corridos (1%/dia) ──
+  // Regra: mês do vencimento sempre conta como 1 mês; cada mês completo adicional +1
+  // Tudo incide sobre o principal original (sem juros sobre juros)
   const calcularJurosAtraso = (dataVencimento, principal) => {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
     const venc = new Date(dataVencimento);
     venc.setHours(0, 0, 0, 0);
-
     if (hoje <= venc) return { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
 
-    // O mês do vencimento já conta como 1 mês
     let meses = 1;
     let cursor = new Date(venc);
-
-    // Avança mês a mês enquanto o próximo mês não ultrapassar hoje
     while (true) {
       const proximo = new Date(cursor);
       proximo.setMonth(proximo.getMonth() + 1);
-      if (proximo <= hoje) {
-        meses++;
-        cursor = proximo;
-      } else {
-        break;
-      }
+      if (proximo <= hoje) { meses++; cursor = proximo; } else break;
     }
-
     const diasCorridos = Math.floor((hoje - cursor) / (1000 * 60 * 60 * 24));
     const jurosAtraso = principal * (meses * 0.30 + diasCorridos * 0.01);
-
     return { mesesAtraso: meses, diasCorridos, jurosAtraso };
   };
 
-  // Calcular valores para pagamento de empréstimo
   const calcularPagamentoEmprestimo = () => {
     if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30, mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
     const principal = Number(emprestimoSelecionado.principal_restante || emprestimoSelecionado.valor_emprestimo || 0);
@@ -277,7 +268,6 @@ const UserArea = () => {
     const jurosVista = principal * (taxaVista / 100);
     const jurosParcelado = principal * (taxaParcelado / 100);
 
-    // Juros de atraso: meses completos + dias corridos
     let mesesAtraso = 0, diasCorridos = 0, jurosAtraso = 0;
     if (emprestimoSelecionado.data_vencimento && emprestimoSelecionado.status === 'ativo') {
       ({ mesesAtraso, diasCorridos, jurosAtraso } = calcularJurosAtraso(
@@ -286,14 +276,8 @@ const UserArea = () => {
     }
 
     return {
-      principal,
-      taxaVista,
-      taxaParcelado,
-      jurosVista,
-      jurosParcelado,
-      mesesAtraso,
-      diasCorridos,
-      jurosAtraso,
+      principal, taxaVista, taxaParcelado, jurosVista, jurosParcelado,
+      mesesAtraso, diasCorridos, jurosAtraso,
       totalQuitacao: principal + jurosVista + jurosAtraso,
       totalSoJuros: jurosParcelado + jurosAtraso
     };
@@ -301,8 +285,7 @@ const UserArea = () => {
 
   const pagamentoCalc = calcularPagamentoEmprestimo();
 
-  // Calcular total de quitação de um empréstimo (usado no botão PIX)
-  // Opera diretamente no objeto emp (independente do emprestimoSelecionado no estado)
+  // calcularTotalQuitacao: usado no botão PIX — opera direto no emp sem depender do estado
   const calcularTotalQuitacao = (emp) => {
     const principal = Number(emp.principal_restante || emp.valor_emprestimo || 0);
     const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
@@ -554,7 +537,17 @@ const UserArea = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-lg">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2"><Calendar className="text-blue-600" size={20} />Minhas Mensalidades</h2>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2"><Calendar className="text-blue-600" size={20} />Minhas Mensalidades</h2>
+          <div className="flex gap-2">
+            {['pendente', 'pago', 'todos'].map(f => (
+              <button key={f} onClick={() => setFiltroMensalidade(f)}
+                className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filtroMensalidade === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
+                {f === 'pendente' ? 'Pendentes' : f === 'pago' ? 'Pagas' : 'Todas'}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -574,7 +567,12 @@ const UserArea = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {minhasMensalidades.map((m) => {
+              {minhasMensalidades.filter(m => {
+                if (filtroMensalidade === 'todos') return true;
+                if (filtroMensalidade === 'pago') return m.status === 'pago';
+                // pendente = pendente OU parcial (parcial não existe como filtro separado)
+                return m.status === 'pendente' || m.status === 'parcial';
+              }).map((m) => {
                 const valorRifa = cotista?.participa_rifa ? (cotista.cotas * 20) : 0;
                 const valorBase = Number(m.valor_devido || 0);
                 
@@ -759,11 +757,22 @@ const UserArea = () => {
         )}
         
         {/* Lista de Empréstimos */}
+        <div className="flex gap-2 mb-3 flex-wrap">
+          {['ativo', 'pago', 'todos'].map(f => (
+            <button key={f} onClick={() => setFiltroEmprestimo(f)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filtroEmprestimo === f ? 'bg-orange-600 text-white border-orange-600' : 'bg-white text-gray-600 border-gray-300 hover:border-orange-400'}`}>
+              {f === 'ativo' ? 'Ativos' : f === 'pago' ? 'Pagos' : 'Todos'}
+            </button>
+          ))}
+        </div>
         {meusEmprestimos.length === 0 ? (
           <p className="text-center text-gray-500 py-4">Nenhum empréstimo</p>
         ) : (
           <div className="space-y-3">
-            {meusEmprestimos.map((emp) => {
+            {meusEmprestimos.filter(emp => {
+              if (filtroEmprestimo === 'todos') return true;
+              return emp.status === filtroEmprestimo;
+            }).map((emp) => {
               const principal = Number(emp.valor_emprestimo || 0);
               const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
               const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
@@ -897,36 +906,43 @@ const UserArea = () => {
               </p>
             </div>
 
-            {/* Último sorteio */}
+            {/* Histórico de Sorteios */}
             {rifaSorteios && rifaSorteios.length > 0 && (
-              <div className="border-t pt-4">
-                <p className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <div className="border-t pt-4 space-y-4">
+                <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Trophy size={16} className="text-yellow-500" />
-                  Último sorteio: {rifaSorteios[0].mes_referencia}
+                  Sorteios Realizados ({rifaSorteios.length})
                 </p>
-                {rifaSorteios[0].vencedores && rifaSorteios[0].vencedores.length > 0 ? (
-                  <div className="space-y-1">
-                    {rifaSorteios[0].vencedores.map((v, idx) => {
-                      const vencedorCotista = cotistas?.find(c => c.id === v.cotista_id);
-                      const posicaoLabel = v.posicao === 'primeiro' ? '🥇' : v.posicao === 'segundo' ? '🥈' : '🥉';
-                      return (
-                        <p key={idx} className="text-sm text-gray-600 flex items-center gap-2">
-                          <span>{posicaoLabel}</span>
-                          <strong>{vencedorCotista?.nome || 'Desconhecido'}</strong>
-                          <span className="font-mono bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">{v.numero}</span>
-                          <span className="text-green-600 font-medium">{formatCurrency(v.valor)}</span>
-                        </p>
-                      );
-                    })}
+                {rifaSorteios.map((sorteio, sorteioIdx) => (
+                  <div key={sorteioIdx} className={`rounded-lg p-3 ${sorteioIdx === 0 ? 'bg-yellow-50 border border-yellow-200' : 'bg-gray-50 border border-gray-100'}`}>
+                    <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                      {sorteioIdx === 0 && '⭐ '}{sorteio.mes_referencia}
+                    </p>
+                    {sorteio.vencedores && sorteio.vencedores.length > 0 ? (
+                      <div className="space-y-1">
+                        {sorteio.vencedores.map((v, idx) => {
+                          const vencedorCotista = cotistas?.find(c => c.id === v.cotista_id);
+                          const posicaoLabel = v.posicao === 'primeiro' ? '🥇' : v.posicao === 'segundo' ? '🥈' : '🥉';
+                          return (
+                            <p key={idx} className="text-sm text-gray-600 flex items-center gap-2">
+                              <span>{posicaoLabel}</span>
+                              <strong>{vencedorCotista?.nome || 'Desconhecido'}</strong>
+                              <span className="font-mono bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">{v.numero}</span>
+                              <span className="text-green-600 font-medium">{formatCurrency(v.valor)}</span>
+                            </p>
+                          );
+                        })}
+                      </div>
+                    ) : sorteio.cotista_vencedor_id ? (
+                      <p className="text-sm text-gray-600">
+                        Vencedor: <strong>{sorteio.cotista_vencedor?.nome}</strong>
+                        {' '}- Prêmio: <strong className="text-green-600">{formatCurrency(sorteio.valor_premio)}</strong>
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-500">Nenhum vencedor neste mês</p>
+                    )}
                   </div>
-                ) : rifaSorteios[0].cotista_vencedor_id ? (
-                  <p className="text-sm text-gray-600">
-                    Vencedor: <strong>{rifaSorteios[0].cotista_vencedor?.nome}</strong> 
-                    {' '}- Prêmio: <strong className="text-green-600">{formatCurrency(rifaSorteios[0].valor_premio)}</strong>
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500">Nenhum vencedor neste mês</p>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -1034,9 +1050,7 @@ const UserArea = () => {
                     )}
                     <p className="font-medium border-t border-red-300 pt-1">Total atraso: <strong>{formatCurrency(pagamentoCalc.jurosAtraso)}</strong></p>
                   </div>
-                  <p className="text-xs text-red-600 mt-2">
-                    Este valor será adicionado ao pagamento.
-                  </p>
+                  <p className="text-xs text-red-600 mt-2">Este valor será adicionado ao pagamento.</p>
                 </div>
               )}
               

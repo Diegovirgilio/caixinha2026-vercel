@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Clock, CheckCircle, XCircle, AlertTriangle,
-  Search, Loader2, X, Check, Ban, Eye, Plus, Edit2, Trash2
+  Search, Loader2, X, Check, Ban, Eye, Plus, Edit2, Trash2,
+  Download, BarChart2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { supabase } from '../services/supabase';
@@ -9,8 +10,11 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 
 const Emprestimos = () => {
   const { cotista } = useAuthStore();
-  const { emprestimos, loadEmprestimos, cotistas, mensalidades, configuracoes } = useAppStore();
+  const { emprestimos, loadEmprestimos, cotistas, mensalidades, configuracoes, juros_emprestimo, getTotalCotas } = useAppStore();
   const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [abaAtiva, setAbaAtiva] = useState('lista');
+  const [filtroCotistaNome, setFiltroCotistaNome] = useState('');
+  const [expandidoId, setExpandidoId] = useState(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -581,8 +585,87 @@ const Emprestimos = () => {
 
   const preview = calcularPreview();
 
+  // ── Visão por Cotista ──
+  const totalCotas = getTotalCotas ? getTotalCotas() : 1;
+
+  const visaoPorCotista = (() => {
+    const jurosEmprestimoList = juros_emprestimo || [];
+    const map = {};
+    (emprestimos || []).forEach(emp => {
+      const cotistaId = emp.cotista_id;
+      if (!map[cotistaId]) {
+        const c = (cotistas || []).find(c => c.id === cotistaId);
+        map[cotistaId] = { cotistaId, nome: c?.nome || 'Desconhecido', cotas: c?.cotas || 1, emprestimos: [], totalEmprestado: 0, totalJurosPago: 0, totalJuros60: 0, totalJuros40: 0, registros: [] };
+      }
+      map[cotistaId].emprestimos.push(emp);
+      map[cotistaId].totalEmprestado += Number(emp.valor_emprestimo || 0);
+    });
+    jurosEmprestimoList.forEach(j => {
+      const valorJuros = Number(j.valor_juros || 0);
+      const modalidade = j.modalidade || 'normal';
+      if (map[j.cotista_id]) {
+        map[j.cotista_id].totalJurosPago += valorJuros;
+        map[j.cotista_id].registros.push(j);
+      }
+      if (modalidade !== 'caixinha') {
+        Object.values(map).forEach(cotMap => {
+          const participacao = (cotMap.cotas / totalCotas) * 100;
+          if (cotMap.cotistaId !== j.cotista_id) cotMap.totalJuros40 += (valorJuros * 0.4 * participacao) / 100;
+          if (cotMap.cotistaId === j.cotista_id) cotMap.totalJuros60 += valorJuros * 0.6;
+        });
+      } else {
+        Object.values(map).forEach(cotMap => {
+          const participacao = (cotMap.cotas / totalCotas) * 100;
+          cotMap.totalJuros40 += (valorJuros * participacao) / 100;
+        });
+      }
+    });
+    return Object.values(map).sort((a, b) => a.nome.localeCompare(b.nome));
+  })();
+
+  const visaoFiltrada = visaoPorCotista.filter(c =>
+    c.nome.toLowerCase().includes(filtroCotistaNome.toLowerCase())
+  );
+
+  const exportarCSV = () => {
+    const headers = ['Nome', 'Cotas', 'Total Emprestado', 'Juros Pago', 'Juros 60% (crédito)', 'Juros 40% (proporcional)', 'Saldo Líquido'];
+    const rows = visaoFiltrada.map(c => [c.nome, c.cotas, c.totalEmprestado.toFixed(2), c.totalJurosPago.toFixed(2), c.totalJuros60.toFixed(2), c.totalJuros40.toFixed(2), (c.totalJuros60 + c.totalJuros40 - c.totalJurosPago).toFixed(2)]);
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'emprestimos_por_cotista.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportarRegistros = () => {
+    const headers = ['Cotista', 'Empréstimo ID', 'Modalidade', 'Tipo Pagamento', 'Valor Juros', 'Principal Abatido', 'Taxa', 'Mês Ref', 'Data'];
+    const rows = (juros_emprestimo || []).map(j => {
+      const c = (cotistas || []).find(c => c.id === j.cotista_id);
+      return [c?.nome || j.cotista_id, j.emprestimo_id, j.modalidade, j.tipo_pagamento, Number(j.valor_juros || 0).toFixed(2), Number(j.valor_principal_abatido || 0).toFixed(2), j.taxa_juros, j.mes_referencia, j.created_at ? new Date(j.created_at).toLocaleDateString('pt-BR') : ''];
+    });
+    const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'registros_juros_emprestimo.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6">
+      {/* Abas */}
+      <div className="flex gap-2 border-b border-gray-200">
+        <button onClick={() => setAbaAtiva('lista')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${abaAtiva === 'lista' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <span className="flex items-center gap-2"><DollarSign size={16} />Lista de Empréstimos</span>
+        </button>
+        <button onClick={() => setAbaAtiva('cotistas')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${abaAtiva === 'cotistas' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <span className="flex items-center gap-2"><BarChart2 size={16} />Visão por Cotista</span>
+        </button>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
@@ -616,6 +699,7 @@ const Emprestimos = () => {
         </div>
       )}
 
+      {abaAtiva === 'lista' && (<>
       {/* Cards de Estatísticas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl shadow p-4">
@@ -831,7 +915,7 @@ const Emprestimos = () => {
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className="text-sm">
-                      {e.tipo === 'vista' ? 'À vista' : `${e.parcelas}x`}
+                      {Number(e.taxa_juros) === Number(configuracoes?.juros_vista || 20) ? 'À vista' : 'Parcelado'} {e.taxa_juros}% juros
                     </span>
                     <br />
                     <span className="text-xs text-gray-500">{e.taxa_juros}% juros</span>
@@ -993,7 +1077,7 @@ const Emprestimos = () => {
                     <div className="bg-gray-50 p-3 rounded-lg">
                       <p className="text-xs text-gray-500">Tipo</p>
                       <p className="font-semibold text-gray-800">
-                        {selectedEmprestimo.tipo === 'vista' ? 'À vista' : `Parcelado ${selectedEmprestimo.parcelas}x`}
+                        {Number(selectedEmprestimo.taxa_juros) === Number(configuracoes?.juros_vista || 20) ? 'À vista' : 'Parcelado'} {selectedEmprestimo.taxa_juros}% juros
                       </p>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg">
@@ -1007,7 +1091,7 @@ const Emprestimos = () => {
                     <div className="bg-blue-50 p-3 rounded-lg col-span-2">
                       <p className="text-xs text-blue-600">Valor Total a Pagar</p>
                       <p className="font-bold text-xl text-blue-700">{formatCurrency(selectedEmprestimo.valor_total)}</p>
-                      {selectedEmprestimo.tipo === 'parcelado' && (
+                      {Number(selectedEmprestimo.taxa_juros) !== Number(configuracoes?.juros_vista || 20) && (
                         <p className="text-sm text-blue-600">
                           {selectedEmprestimo.parcelas}x de {formatCurrency(selectedEmprestimo.valor_parcela)}
                         </p>
@@ -1024,6 +1108,98 @@ const Emprestimos = () => {
                       <p>Quitado em: {formatDate(selectedEmprestimo.data_quitacao)}</p>
                     )}
                   </div>
+
+                  {/* Histórico de Juros Pagos */}
+                  {(() => {
+                    const [filtroModalidade, setFiltroModalidade] = React.useState('todos');
+                    const registros = (juros_emprestimo || [])
+                      .filter(j => j.emprestimo_id === selectedEmprestimo.id &&
+                        (filtroModalidade === 'todos' || j.modalidade === filtroModalidade))
+                      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                    const totalJuros = registros.reduce((s, r) => s + Number(r.valor_juros || 0), 0);
+                    const totalAbatido = registros.reduce((s, r) => s + Number(r.valor_principal_abatido || 0), 0);
+                    return (
+                      <div className="border-t pt-3">
+                        <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                          📋 Histórico de Pagamentos de Juros
+                          {registros.length > 0 && (
+                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                              {registros.length} registro(s)
+                            </span>
+                          )}
+                        </p>
+                        {registros.length === 0 ? (
+                          <p className="text-xs text-gray-400 italic">Nenhum pagamento de juros registrado.</p>
+                        ) : (
+                          <>
+                            <div className="flex gap-2 mb-2">
+                              {['todos', 'normal', 'caixinha'].map(f => (
+                                <button key={f} onClick={() => setFiltroModalidade(f)}
+                                  className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${filtroModalidade === f ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'}`}>
+                                  {f === 'todos' ? 'Todos' : f === 'normal' ? 'Normal' : 'Caixinha'}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="bg-gray-50 text-gray-500 uppercase">
+                                    <th className="text-left px-2 py-1.5">Mês Ref.</th>
+                                    <th className="text-left px-2 py-1.5">Tipo</th>
+                                    <th className="text-right px-2 py-1.5">Juros</th>
+                                    <th className="text-right px-2 py-1.5">Principal Abatido</th>
+                                    <th className="text-right px-2 py-1.5">Taxa</th>
+                                    <th className="text-left px-2 py-1.5">Data</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {registros.map((r, idx) => (
+                                    <tr key={idx} className="hover:bg-gray-50">
+                                      <td className="px-2 py-1.5 font-mono">{r.mes_referencia}</td>
+                                      <td className="px-2 py-1.5">
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                          r.tipo_pagamento === 'quitacao' ? 'bg-green-100 text-green-700' :
+                                          r.tipo_pagamento === 'soJuros' ? 'bg-yellow-100 text-yellow-700' :
+                                          'bg-blue-100 text-blue-700'
+                                        }`}>
+                                          {r.tipo_pagamento === 'quitacao' ? 'Quitação' :
+                                           r.tipo_pagamento === 'soJuros' ? 'Só Juros' : 'Parcial'}
+                                        </span>
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right text-red-600 font-medium">
+                                        {formatCurrency(Number(r.valor_juros || 0))}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right text-gray-700">
+                                        {Number(r.valor_principal_abatido || 0) > 0
+                                          ? formatCurrency(Number(r.valor_principal_abatido))
+                                          : '—'}
+                                      </td>
+                                      <td className="px-2 py-1.5 text-right">{r.taxa_juros}%</td>
+                                      <td className="px-2 py-1.5 text-gray-500">
+                                        {r.created_at ? new Date(r.created_at).toLocaleDateString('pt-BR') : '—'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="bg-gray-50 font-semibold text-xs border-t-2 border-gray-200">
+                                  <tr>
+                                    <td className="px-2 py-1.5 text-gray-600" colSpan={2}>Total</td>
+                                    <td className="px-2 py-1.5 text-right text-red-600">{formatCurrency(totalJuros)}</td>
+                                    <td className="px-2 py-1.5 text-right text-gray-700">{formatCurrency(totalAbatido)}</td>
+                                    <td colSpan={2}></td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                            <div className="mt-2 flex gap-4 text-xs text-gray-500">
+                              <span>Principal original: <strong>{formatCurrency(selectedEmprestimo.valor_emprestimo)}</strong></span>
+                              <span>Principal restante: <strong className="text-orange-600">{formatCurrency(Number(selectedEmprestimo.principal_restante || selectedEmprestimo.valor_emprestimo))}</strong></span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
@@ -1341,6 +1517,124 @@ const Emprestimos = () => {
           </div>
         </div>
       )}
+      </>)}
+
+      {/* ── Visão por Cotista ── */}
+      {abaAtiva === 'cotistas' && (
+        <div className="bg-white rounded-xl shadow-lg p-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+              <BarChart2 className="text-blue-600" size={20} />Juros por Cotista
+            </h2>
+            <div className="flex gap-2 flex-wrap">
+              <button onClick={exportarCSV} className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+                <Download size={16} />Exportar Resumo
+              </button>
+              <button onClick={exportarRegistros} className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">
+                <Download size={16} />Exportar Registros
+              </button>
+            </div>
+          </div>
+          <div className="relative mb-4">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input type="text" placeholder="Filtrar por nome..." value={filtroCotistaNome}
+              onChange={e => setFiltroCotistaNome(e.target.value)}
+              className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg w-full sm:w-64 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Cotista</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total Emprestado</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Juros Pago</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">60% crédito</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">40% proporcional</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Saldo Líquido</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Detalhes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {visaoFiltrada.map(c => {
+                  const saldoLiquido = c.totalJuros60 + c.totalJuros40 - c.totalJurosPago;
+                  const isExpanded = expandidoId === c.cotistaId;
+                  return (
+                    <React.Fragment key={c.cotistaId}>
+                      <tr className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-800">
+                          <div>{c.nome}</div>
+                          <div className="text-xs text-gray-400">{c.cotas} cota(s)</div>
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-700">{formatCurrency(c.totalEmprestado)}</td>
+                        <td className="px-4 py-3 text-right text-red-600 font-medium">{formatCurrency(c.totalJurosPago)}</td>
+                        <td className="px-4 py-3 text-right text-green-600 font-medium">+ {formatCurrency(c.totalJuros60)}</td>
+                        <td className="px-4 py-3 text-right text-blue-600 font-medium">+ {formatCurrency(c.totalJuros40)}</td>
+                        <td className={`px-4 py-3 text-right font-bold ${saldoLiquido >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          {saldoLiquido >= 0 ? '+' : ''}{formatCurrency(saldoLiquido)}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button onClick={() => setExpandidoId(isExpanded ? null : c.cotistaId)}
+                            className="text-blue-600 hover:text-blue-800 flex items-center gap-1 mx-auto text-xs">
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            {isExpanded ? 'Fechar' : 'Ver'}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={7} className="px-4 py-3 bg-blue-50">
+                            <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Registros de juros</p>
+                            {c.registros.length === 0 ? (
+                              <p className="text-xs text-gray-400">Nenhum registro encontrado</p>
+                            ) : (
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-500">
+                                    <th className="text-left py-1 pr-4">Mês Ref.</th>
+                                    <th className="text-left py-1 pr-4">Modalidade</th>
+                                    <th className="text-left py-1 pr-4">Tipo</th>
+                                    <th className="text-right py-1 pr-4">Valor Juros</th>
+                                    <th className="text-right py-1 pr-4">Principal Abatido</th>
+                                    <th className="text-right py-1">Taxa</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {c.registros.map((r, idx) => (
+                                    <tr key={idx} className="border-t border-blue-100">
+                                      <td className="py-1 pr-4">{r.mes_referencia}</td>
+                                      <td className="py-1 pr-4 capitalize">{r.modalidade}</td>
+                                      <td className="py-1 pr-4">{r.tipo_pagamento === 'quitacao' ? 'Quitação' : r.tipo_pagamento === 'soJuros' ? 'Só Juros' : 'Parcial'}</td>
+                                      <td className="py-1 pr-4 text-right text-red-600">{formatCurrency(Number(r.valor_juros || 0))}</td>
+                                      <td className="py-1 pr-4 text-right">{formatCurrency(Number(r.valor_principal_abatido || 0))}</td>
+                                      <td className="py-1 text-right">{r.taxa_juros}%</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+              <tfoot className="bg-gray-100 font-semibold border-t-2 border-gray-300">
+                <tr>
+                  <td className="px-4 py-3 text-gray-700">TOTAL</td>
+                  <td className="px-4 py-3 text-right">{formatCurrency(visaoFiltrada.reduce((s, c) => s + c.totalEmprestado, 0))}</td>
+                  <td className="px-4 py-3 text-right text-red-600">{formatCurrency(visaoFiltrada.reduce((s, c) => s + c.totalJurosPago, 0))}</td>
+                  <td className="px-4 py-3 text-right text-green-600">{formatCurrency(visaoFiltrada.reduce((s, c) => s + c.totalJuros60, 0))}</td>
+                  <td className="px-4 py-3 text-right text-blue-600">{formatCurrency(visaoFiltrada.reduce((s, c) => s + c.totalJuros40, 0))}</td>
+                  <td className="px-4 py-3"></td>
+                  <td className="px-4 py-3"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

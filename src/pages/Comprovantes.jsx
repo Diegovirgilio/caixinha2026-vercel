@@ -56,8 +56,8 @@ const Comprovantes = () => {
 
   // Estatísticas
   const stats = {
-    pendentes: comprovantes.filter(c => c.status === 'pendente').length,
-    aprovados: comprovantes.filter(c => c.status === 'aprovado').length,
+    pendentes:  comprovantes.filter(c => c.status === 'pendente').length,
+    aprovados:  comprovantes.filter(c => ['aprovado', 'juros', 'parcial'].includes(c.status)).length,
     rejeitados: comprovantes.filter(c => c.status === 'rejeitado').length
   };
 
@@ -216,9 +216,11 @@ const Comprovantes = () => {
 
   const getStatusBadge = (status) => {
     const config = {
-      pendente: { icon: Clock, class: 'bg-yellow-100 text-yellow-700', label: 'Pendente' },
-      aprovado: { icon: CheckCircle, class: 'bg-green-100 text-green-700', label: 'Aprovado' },
-      rejeitado: { icon: XCircle, class: 'bg-red-100 text-red-700', label: 'Rejeitado' }
+      pendente:  { icon: Clock,        class: 'bg-yellow-100 text-yellow-700', label: 'Pendente' },
+      aprovado:  { icon: CheckCircle,  class: 'bg-green-100 text-green-700',   label: 'Quitado' },
+      juros:     { icon: CheckCircle,  class: 'bg-blue-100 text-blue-700',     label: 'Juros' },
+      parcial:   { icon: CheckCircle,  class: 'bg-orange-100 text-orange-700', label: 'Parcial' },
+      rejeitado: { icon: XCircle,      class: 'bg-red-100 text-red-700',       label: 'Rejeitado' }
     };
     const { icon: Icon, class: className, label } = config[status] || config.pendente;
     return (
@@ -487,7 +489,9 @@ const Comprovantes = () => {
           >
             <option value="todos">Todos Status</option>
             <option value="pendente">Pendentes</option>
-            <option value="aprovado">Aprovados</option>
+            <option value="aprovado">Quitados</option>
+            <option value="juros">Juros</option>
+            <option value="parcial">Parciais</option>
             <option value="rejeitado">Rejeitados</option>
           </select>
           <select
@@ -602,7 +606,7 @@ const Comprovantes = () => {
                           Validar
                         </button>
                       )}
-                      {(c.status === 'aprovado' || c.status === 'rejeitado') && (
+                      {(['aprovado', 'juros', 'parcial', 'rejeitado'].includes(c.status)) && (
                         <>
                           <button
                             onClick={() => handleVoltarPendente(c)}

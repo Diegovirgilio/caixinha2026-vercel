@@ -79,30 +79,27 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   const totalCDI = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
   const bonusCDI = (totalCDI * participacao) / 100;
 
-  // 5. Bônus Rifa (proporcional ao valor de rifa pago - só ativos)
-  // Só recebe quem está ATIVO e participa_rifa = true
+  // 5. Bônus Rifa
+  // Fórmula: do que o cotista pagou, devolve a proporção que NÃO foi para prêmio
+  // bonusRifa = totalRifaPaga × (sobra / totalArrecadado)
   const todasMensalidades = Object.values(mensalidades || {}).flat();
-  
-  // Cotistas ativos que participam da rifa
-  const cotistasAtivosRifa = cotistasNaoAdmin.filter(c => c.status === 'ativo' && c.participa_rifa);
-  const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
-  
-  // Total arrecadado (para calcular sobra)
+
   const totalRifaArrecadado = todasMensalidades
     .filter(m => m.status === 'pago' || m.status === 'parcial')
     .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-  
-  // Total pago apenas por cotistas ATIVOS (para distribuição)
-  const totalRifaAtivos = todasMensalidades
-    .filter(m => (m.status === 'pago' || m.status === 'parcial') && idsCotistasAtivosRifa.includes(m.cotista_id))
-    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-  
+
   const totalPremiosPagos = (rifaSorteios || []).reduce((s, r) => s + Number(r.valor_premio || 0), 0);
   const sobraCaixinhaRifa = Math.max(0, totalRifaArrecadado - totalPremiosPagos);
-  
-  // Só calcula bônus se cotista está ativo
-  const bonusRifa = (cotista.status === 'ativo' && totalRifaAtivos > 0)
-    ? (totalRifaPaga / totalRifaAtivos) * sobraCaixinhaRifa
+
+  // Percentual da sobra = quanto do arrecadado NÃO foi para prêmio
+  const percentualSobra = totalRifaArrecadado > 0 ? sobraCaixinhaRifa / totalRifaArrecadado : 0;
+
+  // Cotista só recebe bônus se está ativo e participa da rifa
+  const cotistasAtivosRifa = cotistasNaoAdmin.filter(c => c.status === 'ativo' && c.participa_rifa);
+  const idsCotistasAtivosRifa = cotistasAtivosRifa.map(c => c.id);
+
+  const bonusRifa = (cotista.status === 'ativo' && cotista.participa_rifa && totalRifaArrecadado > 0)
+    ? totalRifaPaga * percentualSobra
     : 0;
 
   // 6. Prêmios de Rifa Ganhos
@@ -118,7 +115,9 @@ const ExtratoCotista = ({ cotista, onClose }) => {
   });
 
   // 7. Saldo Final (investido + rifa paga + bônus)
-  const saldoFinal = totalInvestido + totalRifaPaga + bonusJuros + bonusJurosAtraso + bonusCDI + bonusRifa + premiosRifaGanhos;
+  // saldoFinal: investido + rendimentos + bônus rifa
+  // premiosRifaGanhos: exibido como informativo, NÃO entra no saldo (recebido no ato do sorteio)
+  const saldoFinal = totalInvestido + bonusJuros + bonusJurosAtraso + bonusCDI + bonusRifa;
 
   // ===== HISTÓRICO DE RENDIMENTOS =====
   const historicoRendimentos = [];
@@ -165,13 +164,13 @@ const ExtratoCotista = ({ cotista, onClose }) => {
     }
   });
 
-  // Bônus Rifa (proporcional ao valor de rifa pago - só ativos que pagaram)
-  if (cotista.participa_rifa && idsCotistasAtivosRifa.includes(cotista.id)) {
+  // Bônus Rifa no histórico — mesma fórmula: totalRifaPaga × (sobra / totalArrecadado)
+  if (cotista.participa_rifa && idsCotistasAtivosRifa.includes(cotista.id) && totalRifaArrecadado > 0) {
     (rifaSorteios || []).forEach(sorteio => {
-      // Distribuir sobra proporcional ao valor pago pelo cotista
       const valorCaixinhaSorteio = Number(sorteio.valor_caixinha || 0);
-      if (valorCaixinhaSorteio > 0 && totalRifaAtivos > 0) {
-        const bonusSorteio = (totalRifaPaga / totalRifaAtivos) * valorCaixinhaSorteio;
+      if (valorCaixinhaSorteio > 0) {
+        const percentualSobraSorteio = totalRifaArrecadado > 0 ? valorCaixinhaSorteio / totalRifaArrecadado : 0;
+        const bonusSorteio = totalRifaPaga * percentualSobraSorteio;
         if (bonusSorteio > 0) {
           historicoRendimentos.push({
             tipo: 'rifa',
@@ -257,12 +256,7 @@ const ExtratoCotista = ({ cotista, onClose }) => {
                 <span className="text-gray-600">Mensalidades (cotas)</span>
                 <span className="font-medium">{formatCurrency(totalInvestido)}</span>
               </div>
-              {totalRifaPaga > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Rifa paga</span>
-                  <span className="font-medium">{formatCurrency(totalRifaPaga)}</span>
-                </div>
-              )}
+
               
               {/* Juros separados */}
               {juros60 > 0 && (
@@ -301,9 +295,9 @@ const ExtratoCotista = ({ cotista, onClose }) => {
                 </div>
               )}
               {premiosRifaGanhos > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">🏆 Prêmios de Rifa</span>
-                  <span className="font-medium text-yellow-600">+ {formatCurrency(premiosRifaGanhos)}</span>
+                <div className="flex justify-between text-sm border-t pt-2 mt-1">
+                  <span className="text-gray-500 italic">🏆 Prêmios recebidos (já pagos no sorteio)</span>
+                  <span className="text-yellow-600 italic">{formatCurrency(premiosRifaGanhos)}</span>
                 </div>
               )}
               
