@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   DollarSign, Clock, CheckCircle, XCircle, AlertTriangle,
-  Search, Loader2, X, Check, Ban, Eye, Plus, Edit2, Trash2,
+  Search, Loader2, X, Check, Ban, Plus, Edit2, Trash2,
   Download, BarChart2, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../store/useStore';
@@ -11,7 +11,7 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 const Emprestimos = () => {
   const { cotista } = useAuthStore();
   const { emprestimos, loadEmprestimos, cotistas, mensalidades, configuracoes, juros_emprestimo, getTotalCotas } = useAppStore();
-  const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [filtroStatus, setFiltroStatus] = useState('ativo');
   const [abaAtiva, setAbaAtiva] = useState('lista');
   const [filtroCotistaNome, setFiltroCotistaNome] = useState('');
   const [expandidoId, setExpandidoId] = useState(null);
@@ -160,12 +160,6 @@ const Emprestimos = () => {
     });
     setModalMode('editar');
     setError('');
-    setShowModal(true);
-  };
-
-  const openDetails = (emprestimo) => {
-    setSelectedEmprestimo(emprestimo);
-    setModalMode('detalhes');
     setShowModal(true);
   };
 
@@ -776,13 +770,6 @@ const Emprestimos = () => {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => openDetails(e)}
-                    className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg"
-                    title="Ver detalhes"
-                  >
-                    <Eye size={18} />
-                  </button>
-                  <button
                     onClick={() => handleAprovar(e)}
                     disabled={loading}
                     className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-1"
@@ -894,18 +881,26 @@ const Emprestimos = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {emprestimosFiltrados.map((e) => (
-                <tr key={e.id} className="hover:bg-gray-50">
+              {emprestimosFiltrados.map((e) => {
+                const venc = e.data_vencimento ? new Date(e.data_vencimento) : null;
+                const diasRow = e.status === 'ativo' && venc ? Math.floor((new Date() - venc) / (1000*60*60*24)) : 0;
+                const atrasadoRow = diasRow > 0;
+                return (
+                <tr key={e.id} className={atrasadoRow ? 'bg-red-50 border-l-4 border-red-500' : 'hover:bg-gray-50'}>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-medium">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center font-medium ${atrasadoRow ? 'bg-red-200 text-red-700' : 'bg-blue-100 text-blue-600'}`}>
                         {e.cotista?.nome?.charAt(0)}
                       </div>
                       <div>
                         <p className="font-medium text-gray-800">{e.cotista?.nome}</p>
-                        <p className="text-xs text-gray-500">
-                          {formatDate(e.created_at)}
-                        </p>
+                        <p className="text-xs text-gray-500">{formatDate(e.created_at)}</p>
+                        {atrasadoRow && (
+                          <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 bg-red-500 text-white text-xs rounded-full font-medium">
+                            <AlertTriangle size={10} />
+                            {diasRow} dia(s) em atraso
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -926,10 +921,26 @@ const Emprestimos = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4 text-center text-gray-600">
-                    {formatCurrency(e.valor_emprestimo)}
+                    {/* Mostra principal restante para empréstimos ativos com abatimento */}
+                    {e.status === 'ativo' && e.principal_restante && Number(e.principal_restante) !== Number(e.valor_emprestimo) ? (
+                      <div>
+                        <span className="text-orange-600 font-medium">{formatCurrency(e.principal_restante)}</span>
+                        <p className="text-xs text-gray-400">orig. {formatCurrency(e.valor_emprestimo)}</p>
+                      </div>
+                    ) : (
+                      formatCurrency(e.valor_emprestimo)
+                    )}
                   </td>
                   <td className="px-6 py-4 text-center font-medium">
-                    {formatCurrency(e.valor_total)}
+                    {/* Total atualizado: principal restante + juros sobre o restante */}
+                    {e.status === 'ativo' && e.principal_restante && Number(e.principal_restante) !== Number(e.valor_emprestimo) ? (
+                      <div>
+                        <span className="text-orange-600">{formatCurrency(Number(e.principal_restante) * (1 + Number(e.taxa_juros) / 100))}</span>
+                        <p className="text-xs text-gray-400">orig. {formatCurrency(e.valor_total)}</p>
+                      </div>
+                    ) : (
+                      formatCurrency(e.valor_total)
+                    )}
                   </td>
                   <td className="px-6 py-4 text-center">
                     {e.data_vencimento ? (
@@ -961,13 +972,6 @@ const Emprestimos = () => {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center gap-1 flex-wrap">
-                      <button
-                        onClick={() => openDetails(e)}
-                        className="p-1.5 text-gray-600 hover:bg-gray-100 rounded"
-                        title="Ver detalhes"
-                      >
-                        <Eye size={16} />
-                      </button>
                       {e.status === 'ativo' && (
                         <button
                           onClick={() => openPagamentoModal(e)}
@@ -1014,7 +1018,8 @@ const Emprestimos = () => {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -1578,35 +1583,100 @@ const Emprestimos = () => {
                       </tr>
                       {isExpanded && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-3 bg-blue-50">
-                            <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Registros de juros</p>
-                            {c.registros.length === 0 ? (
-                              <p className="text-xs text-gray-400">Nenhum registro encontrado</p>
+                          <td colSpan={7} className="px-0 py-0 bg-slate-50">
+                            {c.emprestimos.length === 0 ? (
+                              <p className="text-xs text-gray-400 px-6 py-3">Nenhum empréstimo encontrado</p>
                             ) : (
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-gray-500">
-                                    <th className="text-left py-1 pr-4">Mês Ref.</th>
-                                    <th className="text-left py-1 pr-4">Modalidade</th>
-                                    <th className="text-left py-1 pr-4">Tipo</th>
-                                    <th className="text-right py-1 pr-4">Valor Juros</th>
-                                    <th className="text-right py-1 pr-4">Principal Abatido</th>
-                                    <th className="text-right py-1">Taxa</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {c.registros.map((r, idx) => (
-                                    <tr key={idx} className="border-t border-blue-100">
-                                      <td className="py-1 pr-4">{r.mes_referencia}</td>
-                                      <td className="py-1 pr-4 capitalize">{r.modalidade}</td>
-                                      <td className="py-1 pr-4">{r.tipo_pagamento === 'quitacao' ? 'Quitação' : r.tipo_pagamento === 'soJuros' ? 'Só Juros' : 'Parcial'}</td>
-                                      <td className="py-1 pr-4 text-right text-red-600">{formatCurrency(Number(r.valor_juros || 0))}</td>
-                                      <td className="py-1 pr-4 text-right">{formatCurrency(Number(r.valor_principal_abatido || 0))}</td>
-                                      <td className="py-1 text-right">{r.taxa_juros}%</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                              <div className="divide-y divide-slate-200">
+                                {c.emprestimos.map((emp, empIdx) => {
+                                  // Histórico de pagamentos deste empréstimo específico
+                                  const historico = c.registros
+                                    .filter(r => r.emprestimo_id === emp.id)
+                                    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+                                  const totalJurosEmp = historico.reduce((s, r) => s + Number(r.valor_juros || 0), 0);
+                                  const totalAbatidoEmp = historico.reduce((s, r) => s + Number(r.valor_principal_abatido || 0), 0);
+                                  const principalRestante = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+                                  const isAtrasado = emp.status === 'ativo' && emp.data_vencimento && new Date() > new Date(emp.data_vencimento);
+
+                                  return (
+                                    <div key={emp.id} className="px-6 py-3">
+                                      {/* Cabeçalho do empréstimo */}
+                                      <div className="flex items-center gap-3 mb-2 flex-wrap">
+                                        <span className="font-semibold text-gray-800">{formatCurrency(emp.valor_emprestimo)}</span>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${emp.modalidade === 'caixinha' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
+                                          {emp.modalidade === 'caixinha' ? '🏦 Caixinha' : 'Normal'}
+                                        </span>
+                                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                          emp.status === 'ativo'    ? 'bg-green-100 text-green-700' :
+                                          emp.status === 'pago'     ? 'bg-blue-100 text-blue-700' :
+                                          emp.status === 'pendente' ? 'bg-yellow-100 text-yellow-700' :
+                                                                      'bg-red-100 text-red-700'
+                                        }`}>
+                                          {emp.status === 'ativo' ? '● Ativo' : emp.status === 'pago' ? '✓ Pago' : emp.status === 'pendente' ? '⏳ Pendente' : 'Rejeitado'}
+                                        </span>
+                                        {emp.status === 'ativo' && (
+                                          <span className={`text-xs ${isAtrasado ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                                            {isAtrasado ? '⚠ Venc. ' : 'Venc. '}
+                                            {emp.data_vencimento ? new Date(emp.data_vencimento).toLocaleDateString('pt-BR') : '—'}
+                                          </span>
+                                        )}
+                                        {emp.status === 'ativo' && (
+                                          <span className="text-xs text-orange-600 ml-auto">
+                                            Restante: <strong>{formatCurrency(principalRestante)}</strong>
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Histórico de pagamentos */}
+                                      {historico.length === 0 ? (
+                                        <p className="text-xs text-gray-400 italic pl-2">Nenhum pagamento registrado</p>
+                                      ) : (
+                                        <table className="w-full text-xs mt-1">
+                                          <thead>
+                                            <tr className="text-gray-400 border-b border-slate-200">
+                                              <th className="text-left pb-1 pr-3 font-medium">Mês</th>
+                                              <th className="text-left pb-1 pr-3 font-medium">Tipo</th>
+                                              <th className="text-right pb-1 pr-3 font-medium">Juros</th>
+                                              <th className="text-right pb-1 pr-3 font-medium">Abatido</th>
+                                              <th className="text-right pb-1 font-medium">Taxa</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            {historico.map((r, idx) => (
+                                              <tr key={idx} className="border-t border-slate-100">
+                                                <td className="py-1 pr-3 font-mono text-gray-600">{r.mes_referencia}</td>
+                                                <td className="py-1 pr-3">
+                                                  <span className={`px-2 py-0.5 rounded-full font-medium ${
+                                                    r.tipo_pagamento === 'quitacao' ? 'bg-green-100 text-green-700' :
+                                                    r.tipo_pagamento === 'soJuros'  ? 'bg-yellow-100 text-yellow-700' :
+                                                    'bg-blue-100 text-blue-700'
+                                                  }`}>
+                                                    {r.tipo_pagamento === 'quitacao' ? '✓ Quitação' :
+                                                     r.tipo_pagamento === 'soJuros'  ? 'Só Juros' : '↓ Parcial'}
+                                                  </span>
+                                                </td>
+                                                <td className="py-1 pr-3 text-right text-red-600 font-medium">{formatCurrency(Number(r.valor_juros || 0))}</td>
+                                                <td className="py-1 pr-3 text-right text-green-700 font-medium">
+                                                  {Number(r.valor_principal_abatido || 0) > 0 ? `- ${formatCurrency(Number(r.valor_principal_abatido))}` : '—'}
+                                                </td>
+                                                <td className="py-1 text-right text-gray-500">{r.taxa_juros}%</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                          <tfoot className="border-t border-slate-200 text-gray-500 font-semibold">
+                                            <tr>
+                                              <td colSpan={2} className="pt-1">Total</td>
+                                              <td className="pt-1 text-right text-red-600">{formatCurrency(totalJurosEmp)}</td>
+                                              <td className="pt-1 text-right text-green-700">{totalAbatidoEmp > 0 ? `- ${formatCurrency(totalAbatidoEmp)}` : '—'}</td>
+                                              <td></td>
+                                            </tr>
+                                          </tfoot>
+                                        </table>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             )}
                           </td>
                         </tr>

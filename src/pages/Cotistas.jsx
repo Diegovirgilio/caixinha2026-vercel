@@ -195,7 +195,7 @@ const Cotistas = () => {
       } else {
         // Criar novo cotista com usuário e senha
         // Gerar email fake se não informado
-        const emailParaAuth = formData.email || `${formData.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`;
+        const emailParaAuth = formData.email || `${formData.nome.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
         
         // Criar usuário no Auth
         const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -279,7 +279,7 @@ const Cotistas = () => {
     try {
       // 1. Gerar email para auth
       const emailParaAuth = resetSenhaCotista.email || 
-        `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`;
+        `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`;
       
       // 2. Deletar usuário antigo no Auth (se existir)
       if (resetSenhaCotista.user_id) {
@@ -1023,7 +1023,7 @@ const Cotistas = () => {
                 <p className="text-sm text-gray-600">Cotista:</p>
                 <p className="font-medium text-gray-800">{resetSenhaCotista.nome}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Email: {resetSenhaCotista.email || `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@caixinha2026.local`}
+                  Email: {resetSenhaCotista.email || `${resetSenhaCotista.nome.trim().toLowerCase().replace(/\s+/g, '.')}@gmail.com`}
                 </p>
               </div>
 

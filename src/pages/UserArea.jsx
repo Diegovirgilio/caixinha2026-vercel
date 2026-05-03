@@ -474,19 +474,6 @@ const UserArea = () => {
     <div className="space-y-6">
       {mensagem.texto && <div className={`p-4 rounded-lg flex items-center gap-2 ${mensagem.tipo === 'sucesso' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{mensagem.tipo === 'sucesso' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}{mensagem.texto}</div>}
 
-      <div className="bg-gradient-to-r from-blue-600 via-blue-700 to-indigo-700 p-6 rounded-xl text-white">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-white/20 rounded-full flex items-center justify-center text-2xl font-bold">{cotista?.nome?.charAt(0)}</div>
-            <div><h1 className="text-2xl font-bold">Olá, {cotista?.nome?.split(' ')[0]}!</h1><p className="text-blue-200">Bem-vindo à sua área</p></div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setShowPixModal(true)} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg flex items-center gap-2"><DollarSign size={18} />PIX</button>
-            <button onClick={() => setShowChangePasswordModal(true)} className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg flex items-center gap-2"><Key size={18} />Senha</button>
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl shadow"><p className="text-gray-500 text-sm">Cotas</p><p className="text-2xl font-bold text-gray-800">{cotista?.cotas || 0}</p><p className="text-xs text-gray-400">{formatPercent(participacao)} do total</p></div>
         <div className="bg-white p-4 rounded-xl shadow"><p className="text-gray-500 text-sm">Investido</p><p className="text-2xl font-bold text-blue-600">{formatCurrency(investido)}</p></div>
@@ -552,6 +539,7 @@ const UserArea = () => {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ação</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mês</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Mensalidade</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
@@ -563,7 +551,6 @@ const UserArea = () => {
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Total</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Pago</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Ação</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -601,6 +588,25 @@ const UserArea = () => {
                 
                 return (
                   <tr key={m.id} className={estaAtrasado ? 'bg-red-50' : ''}>
+                    <td className="px-4 py-3 text-center">
+                      {m.status !== 'pago' && (
+                        temComprovantePendente('mensalidade', m.id) ? (
+                          <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span>
+                        ) : (
+                          <div className="flex items-center justify-center gap-1">
+                            <button onClick={() => openPixMensalidade(m, valorTotal - (m.valor_pago || 0))}
+                              className="text-xs bg-teal-600 text-white px-2 py-1 rounded hover:bg-teal-700 flex items-center gap-1"
+                              title="PIX com valor">
+                              <Copy size={14} />PIX
+                            </button>
+                            <button onClick={() => openComprovanteModal('mensalidade', m)}
+                              className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1">
+                              <Upload size={14} />Compr.
+                            </button>
+                          </div>
+                        )
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900">
                       {formatMesReferencia(m.mes_referencia)}
                       {estaAtrasado && (
@@ -629,29 +635,6 @@ const UserArea = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-center text-gray-600">{formatCurrency(m.valor_pago)}</td>
                     <td className="px-4 py-3 text-center"><span className={`px-2 py-1 text-xs rounded-full ${STATUS_MENSALIDADE_COLORS[m.status]}`}>{m.status === 'pago' ? '✓ Pago' : m.status === 'parcial' ? '◐ Parcial' : '○ Pendente'}</span></td>
-                    <td className="px-4 py-3 text-center">
-                      {m.status !== 'pago' && (
-                        temComprovantePendente('mensalidade', m.id) ? (
-                          <span className="text-xs text-yellow-600 flex items-center justify-center gap-1"><Clock size={14} />Aguardando</span>
-                        ) : (
-                          <div className="flex items-center justify-center gap-1">
-                            <button 
-                              onClick={() => openPixMensalidade(m, valorTotal - (m.valor_pago || 0))}
-                              className="text-xs bg-teal-600 text-white px-2 py-1 rounded hover:bg-teal-700 flex items-center gap-1"
-                              title="PIX com valor"
-                            >
-                              <Copy size={14} />PIX
-                            </button>
-                            <button 
-                              onClick={() => openComprovanteModal('mensalidade', m)} 
-                              className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 flex items-center gap-1"
-                            >
-                              <Upload size={14} />Compr.
-                            </button>
-                          </div>
-                        )
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -773,7 +756,10 @@ const UserArea = () => {
               if (filtroEmprestimo === 'todos') return true;
               return emp.status === filtroEmprestimo;
             }).map((emp) => {
-              const principal = Number(emp.valor_emprestimo || 0);
+              // Usa principal_restante para refletir abatimentos parciais
+              const principal = Number(emp.principal_restante || emp.valor_emprestimo || 0);
+              const principalOriginal = Number(emp.valor_emprestimo || 0);
+              const temAbatimento = emp.status === 'ativo' && principal < principalOriginal;
               const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
               const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
               const jurosVista = principal * (taxaVista / 100);
@@ -806,7 +792,14 @@ const UserArea = () => {
                           </span>
                         )}
                       </div>
-                      <p className="font-bold text-lg text-gray-800">Principal: {formatCurrency(principal)}</p>
+                      <div className="mb-1">
+                        <p className="font-bold text-lg text-gray-800">
+                          Principal: <span className={temAbatimento ? 'text-orange-600' : ''}>{formatCurrency(principal)}</span>
+                        </p>
+                        {temAbatimento && (
+                          <p className="text-xs text-gray-400">original: {formatCurrency(principalOriginal)}</p>
+                        )}
+                      </div>
                       {emp.status === 'ativo' && (
                         <div className="text-sm text-gray-600 mt-1">
                           {vencimento && (
