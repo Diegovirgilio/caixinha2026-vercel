@@ -229,19 +229,19 @@ export const useAppStore = create((set, get) => ({
         .from('comprovantes').select('*').eq('id', comprovanteId).single();
       if (!comprovante) throw new Error('Comprovante não encontrado');
 
-      // Verifica duplicata ANTES de alterar o status — evita reprocessar empréstimo
-      const { data: jaAprovados } = await supabase
-        .from('comprovantes').select('id')
-        .eq('cotista_id', comprovante.cotista_id)
-        .eq('referencia_id', comprovante.referencia_id)
-        .eq('tipo', comprovante.tipo)
-        .eq('status', 'aprovado');
-      const jaTemAprovado = jaAprovados && jaAprovados.length > 0;
-
-      // Marca comprovante como aprovado (ajustado abaixo para empréstimos)
+      // Marca comprovante como aprovado imediatamente
       await supabase.from('comprovantes').update({
         status: 'aprovado', validado_por: adminId, data_validacao: new Date().toISOString()
       }).eq('id', comprovanteId);
+
+      // Verifica duplicata via juros_emprestimo — evita reprocessar se já existe registro
+      // Não usa status do comprovante pois o update acima já o alterou para 'aprovado'
+      const { data: jurosExistente } = await supabase
+        .from('juros_emprestimo')
+        .select('id')
+        .eq('comprovante_id', comprovanteId)
+        .maybeSingle();
+      const jaTemAprovado = !!jurosExistente;
 
       // Registra juros de atraso se houver
       if (jurosAtraso > 0) {
@@ -319,11 +319,9 @@ export const useAppStore = create((set, get) => ({
               novoStatus = 'pago';
             }
 
-            // Registra juros com proteção anti-duplicata por comprovante
+            // Registra juros — proteção anti-duplicata já garantida pelo jaTemAprovado acima
             if (valorJuros > 0) {
-              const { data: existing } = await supabase
-                .from('juros_emprestimo').select('id').eq('comprovante_id', comprovanteId).maybeSingle();
-              if (!existing) {
+              if (!jaTemAprovado) {
                 await supabase.from('juros_emprestimo').insert({
                   emprestimo_id: emprestimo.id, cotista_id: emprestimo.cotista_id,
                   comprovante_id: comprovanteId, modalidade, tipo_pagamento: tipoPagamento,
@@ -334,13 +332,20 @@ export const useAppStore = create((set, get) => ({
               }
             }
 
-            // Avança vencimento em 1 mês se empréstimo continua ativo
+            // Avança vencimento em 1 mês mantendo o dia fixo (ex: dia 5 → sempre dia 5)
+            // Se data_vencimento for null, usa hoje + 1 mês como base
             let novoVencimento = emprestimo.data_vencimento || null;
-            if (novoStatus === 'ativo' && emprestimo.data_vencimento) {
-              const v = new Date(emprestimo.data_vencimento);
-              if (!isNaN(v.getTime())) {
-                novoVencimento = new Date(v.getFullYear(), v.getMonth() + 1, v.getDate())
-                  .toISOString().split('T')[0];
+            if (novoStatus === 'ativo') {
+              // Adiciona T00:00:00 para evitar conversão UTC que causa 1 dia a menos
+              const baseStr = emprestimo.data_vencimento
+                ? (emprestimo.data_vencimento.includes('T') ? emprestimo.data_vencimento : emprestimo.data_vencimento + 'T00:00:00')
+                : new Date().toISOString();
+              const base = new Date(baseStr);
+              if (!isNaN(base.getTime())) {
+                const y = base.getFullYear();
+                const m = String(base.getMonth() + 2).padStart(2, '0');
+                const d = String(base.getDate()).padStart(2, '0');
+                novoVencimento = `${y}-${m}-${d}`;
               }
             }
 
@@ -391,9 +396,10 @@ export const useAppStore = create((set, get) => ({
             // Recua vencimento em 1 mês (desfaz o avanço da aprovação)
             let vencimentoRestaurado = emp.data_vencimento;
             if (emp.data_vencimento && jurosReg.tipo_pagamento !== 'quitacao') {
-              const v = new Date(emp.data_vencimento);
+              const vStr = emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00';
+              const v = new Date(vStr);
               v.setMonth(v.getMonth() - 1);
-              vencimentoRestaurado = v.toISOString().split('T')[0];
+              vencimentoRestaurado = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
             }
 
             await supabase.from('emprestimos').update({
@@ -467,8 +473,13 @@ export const useAppStore = create((set, get) => ({
 
   aprovarEmprestimo: async (id, aprovadorId) => {
     try {
+      // Vencimento: mesmo dia do mês seguinte — string manual evita bug de timezone UTC
+      const hoje = new Date();
+      const vencimento = `${hoje.getFullYear()}-${String(hoje.getMonth() + 2).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
       const { error } = await supabase.from('emprestimos').update({
-        status: 'ativo', aprovado_por: aprovadorId, data_aprovacao: new Date().toISOString()
+        status: 'ativo', aprovado_por: aprovadorId,
+        data_aprovacao: new Date().toISOString(),
+        data_vencimento: vencimento
       }).eq('id', id);
       if (error) throw error;
       await get().loadEmprestimos();

@@ -385,6 +385,8 @@ const UserArea = () => {
       });
       
       setUploadProgress(100);
+      // Atualiza lista local imediatamente para exibir "Aguardando confirmação"
+      setMeusComprovantes((comprovantes || []).filter(c => c.cotista_id === cotista.id));
       setMensagem({ tipo: 'sucesso', texto: 'Comprovante enviado! Aguarde aprovação.' });
       setShowPagamentoEmprestimo(false);
       setEmprestimoSelecionado(null);

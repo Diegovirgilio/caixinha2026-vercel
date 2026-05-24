@@ -35,7 +35,12 @@ export const formatPercent = (value, decimals = 2) => {
 export const formatDate = (date, format = 'short') => {
   if (!date) return '-';
   
-  const d = new Date(date);
+  // Datas no formato YYYY-MM-DD são interpretadas como UTC pelo JS.
+  // Adicionamos T00:00:00 para forçar horário local e evitar o dia anterior (bug de timezone).
+  const dateStr = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? date + 'T00:00:00'
+    : date;
+  const d = new Date(dateStr);
   
   const formats = {
     short: { day: '2-digit', month: '2-digit', year: 'numeric' },

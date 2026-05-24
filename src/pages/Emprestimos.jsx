@@ -485,16 +485,20 @@ const Emprestimos = () => {
     setLoading(true);
     try {
       // Calcular vencimento: mesmo dia do mês seguinte
+      // Usa string manual para evitar conversão UTC que causa 1 dia a menos
       const hoje = new Date();
-      const vencimento = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
-      
+      const ano = hoje.getFullYear();
+      const mes = String(hoje.getMonth() + 2).padStart(2, '0'); // +1 mês
+      const dia = String(hoje.getDate()).padStart(2, '0');
+      const vencimento = `${ano}-${mes}-${dia}`;
+
       const { error: updateError } = await supabase
         .from('emprestimos')
         .update({
           status: 'ativo',
           aprovado_por: cotista.id,
           data_aprovacao: new Date().toISOString(),
-          data_vencimento: vencimento.toISOString().split('T')[0]
+          data_vencimento: vencimento
         })
         .eq('id', emprestimo.id);
 
@@ -882,7 +886,7 @@ const Emprestimos = () => {
             </thead>
             <tbody className="divide-y divide-gray-200">
               {emprestimosFiltrados.map((e) => {
-                const venc = e.data_vencimento ? new Date(e.data_vencimento) : null;
+                const venc = e.data_vencimento ? new Date(e.data_vencimento.includes('T') ? e.data_vencimento : e.data_vencimento + 'T00:00:00') : null;
                 const diasRow = e.status === 'ativo' && venc ? Math.floor((new Date() - venc) / (1000*60*60*24)) : 0;
                 const atrasadoRow = diasRow > 0;
                 return (
@@ -946,7 +950,8 @@ const Emprestimos = () => {
                     {e.data_vencimento ? (
                       (() => {
                         const hoje = new Date();
-                        const vencimento = new Date(e.data_vencimento);
+                        const vencStr = e.data_vencimento.includes('T') ? e.data_vencimento : e.data_vencimento + 'T00:00:00';
+                        const vencimento = new Date(vencStr);
                         const diasAtraso = e.status === 'ativo' ? Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)) : 0;
                         const estaAtrasado = diasAtraso > 0;
                         
@@ -1596,7 +1601,7 @@ const Emprestimos = () => {
                                   const totalJurosEmp = historico.reduce((s, r) => s + Number(r.valor_juros || 0), 0);
                                   const totalAbatidoEmp = historico.reduce((s, r) => s + Number(r.valor_principal_abatido || 0), 0);
                                   const principalRestante = Number(emp.principal_restante || emp.valor_emprestimo || 0);
-                                  const isAtrasado = emp.status === 'ativo' && emp.data_vencimento && new Date() > new Date(emp.data_vencimento);
+                                  const isAtrasado = emp.status === 'ativo' && emp.data_vencimento && new Date() > new Date(emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00');
 
                                   return (
                                     <div key={emp.id} className="px-6 py-3">
@@ -1617,7 +1622,7 @@ const Emprestimos = () => {
                                         {emp.status === 'ativo' && (
                                           <span className={`text-xs ${isAtrasado ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                                             {isAtrasado ? '⚠ Venc. ' : 'Venc. '}
-                                            {emp.data_vencimento ? new Date(emp.data_vencimento).toLocaleDateString('pt-BR') : '—'}
+                                            {emp.data_vencimento ? new Date((emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00')).toLocaleDateString('pt-BR') : '—'}
                                           </span>
                                         )}
                                         {emp.status === 'ativo' && (

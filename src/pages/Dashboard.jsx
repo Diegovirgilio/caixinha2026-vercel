@@ -1,19 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { 
-  DollarSign, TrendingUp, Users, Calendar, PiggyBank, 
-  AlertCircle, CheckCircle, Clock, ArrowUpRight, ArrowDownRight, Wallet
+  DollarSign, TrendingUp, Users, Calendar, PiggyBank,
+  AlertCircle, CheckCircle, Clock, ArrowUpRight, Wallet
 } from 'lucide-react';
 import { useAppStore, useAuthStore } from '../store/useStore';
 import { dashboardApi } from '../services/api';
-import { formatCurrency, formatPercent } from '../utils/formatters';
+import { formatCurrency } from '../utils/formatters';
 
 const Dashboard = () => {
-  const { cotistas, emprestimos, rifas, cdi, getTotalCotas, getTotalInvestido, configuracoes, mensalidades, rifaSorteios, juros_atraso } = useAppStore();
+  const {
+    cotistas, emprestimos, cdi, getTotalCotas, getTotalInvestido,
+    mensalidades, rifaSorteios, juros_atraso
+  } = useAppStore();
   const { cotista } = useAuthStore();
   const [resumo, setResumo] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Filtrar apenas cotistas (não admins)
+  // Cotistas sem admin para cálculos de cotas e participação
   const apenasContistas = (cotistas || []).filter(c => !c.is_admin);
   const totalCotasCalc = apenasContistas.reduce((sum, c) => sum + (c.cotas || 0), 0);
 
@@ -23,15 +26,13 @@ const Dashboard = () => {
         const data = await dashboardApi.getResumoGeral();
         setResumo(data);
       } catch (error) {
-        console.error('Erro ao carregar resumo:', error);
-        // Calcular localmente se falhar (excluindo admins)
+        // Fallback local quando a API falhar
         setResumo({
           totalCotas: totalCotasCalc,
           totalCotistas: apenasContistas.length,
           totalInvestido: getTotalInvestido(),
-          totalEmprestimosAtivos: (emprestimos || []).filter(e => e.status === 'ativo').reduce((s, e) => s + Number(e.valor_emprestimo || 0), 0),
-          totalJuros: (emprestimos || []).filter(e => e.status === 'pago').reduce((s, e) => s + Number(e.valor_juros || 0), 0),
-          totalRifas: (rifas || []).reduce((s, r) => s + Number(r.valor || 0), 0),
+          totalJuros: 0,
+          totalRifas: 0,
           totalCDI: (cdi || []).reduce((s, c) => s + Number(c.valor || 0), 0)
         });
       } finally {
@@ -39,64 +40,54 @@ const Dashboard = () => {
       }
     };
     loadResumo();
-  }, [cotistas, emprestimos, rifas, cdi]);
+  }, [cotistas, emprestimos, cdi]);
 
   const totalCotas = resumo?.totalCotas || totalCotasCalc;
-  
-  // ===== CÁLCULOS AUXILIARES (Movidos para antes do uso) =====
+
+  // IDs de admins — excluídos dos cálculos financeiros
   const adminIds = (cotistas || []).filter(c => c.is_admin).map(c => c.id);
-  
+
+  // Total de juros de atraso arrecadados
   const totalJurosAtraso = (juros_atraso || [])
     .reduce((sum, j) => sum + Number(j.valor_juros || 0), 0);
 
-  const mensalidadesPagas = Object.values(mensalidades || {}).flat()
-    .filter(m => !adminIds.includes(m.cotista_id))
-    .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => sum + Number(m.valor_pago || 0), 0);
-  
-  const rifasPagas = Object.values(mensalidades || {}).flat()
-    .filter(m => !adminIds.includes(m.cotista_id))
-    .filter(m => m.status === 'pago' || m.status === 'parcial')
-    .reduce((sum, m) => sum + Number(m.valor_rifa || 0), 0);
-  
-  const jurosEmprestimosRecebidos = (emprestimos || [])
-    .filter(e => !adminIds.includes(e.cotista_id))
-    .filter(e => e.status === 'pago')
-    .reduce((sum, e) => sum + Number(e.valor_juros || 0), 0);
-  
-  const cdiAcumulado = (cdi || []).reduce((sum, c) => sum + Number(c.valor || 0), 0);
-  
+  // Total em empréstimos ativos (caixa comprometida)
   const emprestimosAtivos = (emprestimos || [])
-    .filter(e => !adminIds.includes(e.cotista_id))
-    .filter(e => e.status === 'ativo')
+    .filter(e => !adminIds.includes(e.cotista_id) && e.status === 'ativo')
     .reduce((sum, e) => sum + Number(e.valor_emprestimo || 0), 0);
-  
+
+  // Total de prêmios pagos nos sorteios (saída de caixa)
   const premiosRifaPagos = (rifaSorteios || [])
     .reduce((sum, s) => sum + Number(s.valor_premio || 0), 0);
 
-  // Patrimônio Total = tudo que a caixinha acumulou (sem subtrair empréstimos ativos)
-  // Inclui: investido + juros emp + juros atraso + rifas pagas + CDI
-  const patrimonioTotal = (resumo?.totalInvestido || 0) + (resumo?.totalJuros || 0) + (resumo?.totalRifas || 0) + (resumo?.totalCDI || 0) + totalJurosAtraso;
-  
-  // ===== SALDO EM CONTA (Caixa Real) =====
-  // Saldo real disponível = tudo que entrou (patrimônio) menos o que está emprestado e os prêmios pagos
+  // Patrimônio Total = tudo que a caixinha acumulou (inclusive empréstimos ativos)
+  const patrimonioTotal = (resumo?.totalInvestido || 0)
+    + (resumo?.totalJuros || 0)
+    + (resumo?.totalRifas || 0)
+    + (resumo?.totalCDI || 0)
+    + totalJurosAtraso;
+
+  // Saldo em Conta = dinheiro disponível (patrimônio menos o que está emprestado e os prêmios pagos)
   const saldoEmConta = patrimonioTotal - emprestimosAtivos - premiosRifaPagos;
-  
-  // Empréstimos pendentes de aprovação (excluindo admins)
+
+  // Empréstimos pendentes de aprovação
   const emprestimosPendentes = (emprestimos || []).filter(e => {
-    const cotistaEmprestimo = (cotistas || []).find(c => c.id === e.cotista_id);
-    return e.status === 'pendente' && !cotistaEmprestimo?.is_admin;
+    const c = (cotistas || []).find(c => c.id === e.cotista_id);
+    return e.status === 'pendente' && !c?.is_admin;
   });
 
-  // Empréstimos em atraso (vencidos)
+  // Empréstimos com vencimento ultrapassado
+  // Usa T00:00:00 para comparar em horário local (evita divergência com Emprestimos.jsx)
   const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
   const emprestimosAtrasados = (emprestimos || []).filter(e => {
-    if (e.status !== 'ativo' || !e.data_vencimento) return false;
-    const vencimento = new Date(e.data_vencimento);
-    return hoje > vencimento;
+    if (!e.data_vencimento || e.status !== 'ativo') return false;
+    const venc = new Date(e.data_vencimento.includes('T') ? e.data_vencimento : e.data_vencimento + 'T00:00:00');
+    return hoje > venc;
   });
 
-  const StatCard = ({ title, value, icon: Icon, color, subtext, trend }) => (
+  // Card de estatística reutilizável
+  const StatCard = ({ title, value, icon: Icon, color, subtext }) => (
     <div className={`bg-gradient-to-br ${color} p-6 rounded-xl shadow-lg text-white`}>
       <div className="flex items-center justify-between">
         <div>
@@ -135,38 +126,39 @@ const Dashboard = () => {
 
       {/* Cards de Destaque */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard 
-          title="Patrimônio Total" 
+        <StatCard
+          title="Patrimônio Total"
           value={formatCurrency(patrimonioTotal)}
           icon={Wallet}
           color="from-blue-600 to-blue-700"
           subtext="Total acumulado (incluindo empréstimos ativos)"
         />
-        <StatCard 
-          title="Saldo em Conta" 
+        <StatCard
+          title="Saldo em Conta"
           value={formatCurrency(saldoEmConta)}
           icon={PiggyBank}
           color="from-emerald-600 to-emerald-700"
           subtext="Disponível para novos empréstimos"
         />
-        <StatCard 
-          title="Total em Empréstimos" 
+        <StatCard
+          title="Total em Empréstimos"
           value={formatCurrency(emprestimosAtivos)}
           icon={ArrowUpRight}
           color="from-amber-600 to-amber-700"
           subtext={`${(emprestimos || []).filter(e => e.status === 'ativo').length} empréstimos ativos`}
         />
-        <StatCard 
-          title="Total de Cotas" 
+        <StatCard
+          title="Total de Cotas"
           value={totalCotas}
           icon={Users}
           color="from-purple-600 to-purple-700"
-          subtext={`${apenasContistas.length} cotistas ativos`}
+          subtext={`${apenasContistas.length} cotistas`}
         />
       </div>
 
-      {/* Seção de Alertas e Detalhes */}
+      {/* Alertas e Composição */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
         {/* Alertas */}
         <div className="lg:col-span-1 space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -210,12 +202,12 @@ const Dashboard = () => {
               <p className="text-3xl font-bold text-blue-600">
                 {formatCurrency(totalCotas > 0 ? patrimonioTotal / totalCotas : 0)}
               </p>
-              <p className="text-xs text-gray-400 mt-2">Baseado no Patrimônio Total / Total de Cotas</p>
+              <p className="text-xs text-gray-400 mt-2">Patrimônio Total ÷ Total de Cotas</p>
             </div>
           </div>
         </div>
 
-        {/* Distribuição do Patrimônio */}
+        {/* Composição do Patrimônio */}
         <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <h3 className="text-lg font-semibold mb-6">Composição do Patrimônio</h3>
           <div className="space-y-6">
@@ -225,10 +217,12 @@ const Dashboard = () => {
                 <span className="font-semibold">{formatCurrency(resumo?.totalInvestido || 0)}</span>
               </div>
               <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${(resumo?.totalInvestido / patrimonioTotal) * 100}%` }}></div>
+                <div className="bg-blue-500 h-2 rounded-full"
+                  style={{ width: `${patrimonioTotal > 0 ? (resumo?.totalInvestido / patrimonioTotal) * 100 : 0}%` }}>
+                </div>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-gray-50">
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="text-xs text-gray-500 mb-1">Juros de Empréstimos</p>
