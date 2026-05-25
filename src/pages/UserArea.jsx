@@ -244,7 +244,9 @@ const UserArea = () => {
   const calcularJurosAtraso = (dataVencimento, principal) => {
     const hoje = new Date();
     hoje.setHours(0, 0, 0, 0);
-    const venc = new Date(dataVencimento);
+    // Força horário local para evitar bug de timezone
+    const vencStr = dataVencimento.includes('T') ? dataVencimento : dataVencimento + 'T00:00:00';
+    const venc = new Date(vencStr);
     venc.setHours(0, 0, 0, 0);
     if (hoje <= venc) return { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
 
@@ -385,8 +387,6 @@ const UserArea = () => {
       });
       
       setUploadProgress(100);
-      // Atualiza lista local imediatamente para exibir "Aguardando confirmação"
-      setMeusComprovantes((comprovantes || []).filter(c => c.cotista_id === cotista.id));
       setMensagem({ tipo: 'sucesso', texto: 'Comprovante enviado! Aguarde aprovação.' });
       setShowPagamentoEmprestimo(false);
       setEmprestimoSelecionado(null);
@@ -769,8 +769,10 @@ const UserArea = () => {
               
               // Calcular atraso
               const hoje = new Date();
-              const vencimento = emp.data_vencimento ? new Date(emp.data_vencimento) : null;
-              const diasAtraso = vencimento && emp.status === 'ativo' 
+              const vencimento = emp.data_vencimento
+                ? new Date(emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00')
+                : null;
+              const diasAtraso = vencimento && emp.status === 'ativo'
                 ? Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)))
                 : 0;
               const jurosAtraso = diasAtraso > 0 ? principal * (diasAtraso * 0.01) : 0;
