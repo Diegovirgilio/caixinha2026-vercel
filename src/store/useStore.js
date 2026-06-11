@@ -342,9 +342,11 @@ export const useAppStore = create((set, get) => ({
                 : new Date().toISOString();
               const base = new Date(baseStr);
               if (!isNaN(base.getTime())) {
-                const y = base.getFullYear();
-                const m = String(base.getMonth() + 2).padStart(2, '0');
-                const d = String(base.getDate()).padStart(2, '0');
+                // Avança 1 mês corretamente usando Date (trata dezembro → janeiro)
+                const proximo = new Date(base.getFullYear(), base.getMonth() + 1, base.getDate());
+                const y = proximo.getFullYear();
+                const m = String(proximo.getMonth() + 1).padStart(2, '0');
+                const d = String(proximo.getDate()).padStart(2, '0');
                 novoVencimento = `${y}-${m}-${d}`;
               }
             }
@@ -385,29 +387,37 @@ export const useAppStore = create((set, get) => ({
         const { data: jurosReg } = await supabase
           .from('juros_emprestimo').select('*').eq('comprovante_id', comprovanteId).maybeSingle();
 
-        if (jurosReg) {
-          const { data: emp } = await supabase
-            .from('emprestimos').select('*').eq('id', comprovante.referencia_id).single();
+        const { data: emp } = await supabase
+          .from('emprestimos').select('*').eq('id', comprovante.referencia_id).single();
 
-          if (emp) {
-            // Restaura principal somando o que foi abatido
-            const principalRestaurado = Number(emp.principal_restante || 0) + Number(jurosReg.valor_principal_abatido || 0);
+        if (emp) {
+          // Restaura principal (se havia juros registrado com abatimento)
+          const principalAbatido = jurosReg ? Number(jurosReg.valor_principal_abatido || 0) : 0;
+          const principalRestaurado = Number(emp.principal_restante || 0) + principalAbatido;
 
-            // Recua vencimento em 1 mês (desfaz o avanço da aprovação)
-            let vencimentoRestaurado = emp.data_vencimento;
-            if (emp.data_vencimento && jurosReg.tipo_pagamento !== 'quitacao') {
-              const vStr = emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00';
-              const v = new Date(vStr);
-              v.setMonth(v.getMonth() - 1);
-              vencimentoRestaurado = `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`;
-            }
+          // Recua vencimento em 1 mês — para soJuros e parcial que avançaram o vencimento
+          // Usa Date(ano, mes-1, dia) para evitar bug com dias 29/30/31
+          let vencimentoRestaurado = emp.data_vencimento;
+          const tipoPgto = jurosReg?.tipo_pagamento || comprovante.status; // fallback pelo status
+          const deveRecuar = tipoPgto === 'soJuros' || tipoPgto === 'juros' || tipoPgto === 'parcial';
 
-            await supabase.from('emprestimos').update({
-              principal_restante: principalRestaurado, status: 'ativo',
-              data_quitacao: null, data_vencimento: vencimentoRestaurado
-            }).eq('id', comprovante.referencia_id);
+          if (emp.data_vencimento && deveRecuar) {
+            const vStr = emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00';
+            const v = new Date(vStr);
+            // Subtrai 1 mês mantendo o dia fixo
+            const anterior = new Date(v.getFullYear(), v.getMonth() - 1, v.getDate());
+            vencimentoRestaurado = `${anterior.getFullYear()}-${String(anterior.getMonth() + 1).padStart(2, '0')}-${String(anterior.getDate()).padStart(2, '0')}`;
+          }
 
-            // Remove juros vinculados ao comprovante rejeitado
+          await supabase.from('emprestimos').update({
+            principal_restante: principalRestaurado,
+            status: 'ativo',
+            data_quitacao: null,
+            data_vencimento: vencimentoRestaurado
+          }).eq('id', comprovante.referencia_id);
+
+          // Remove juros vinculados se existirem
+          if (jurosReg) {
             await supabase.from('juros_emprestimo').delete().eq('comprovante_id', comprovanteId);
           }
         }
@@ -475,7 +485,9 @@ export const useAppStore = create((set, get) => ({
     try {
       // Vencimento: mesmo dia do mês seguinte — string manual evita bug de timezone UTC
       const hoje = new Date();
-      const vencimento = `${hoje.getFullYear()}-${String(hoje.getMonth() + 2).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+      // Avança 1 mês corretamente (getMonth() + 2 estaria errado para dezembro)
+      const proximo = new Date(hoje.getFullYear(), hoje.getMonth() + 1, hoje.getDate());
+      const vencimento = `${proximo.getFullYear()}-${String(proximo.getMonth() + 1).padStart(2, '0')}-${String(proximo.getDate()).padStart(2, '0')}`;
       const { error } = await supabase.from('emprestimos').update({
         status: 'ativo', aprovado_por: aprovadorId,
         data_aprovacao: new Date().toISOString(),

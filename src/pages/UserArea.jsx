@@ -772,11 +772,12 @@ const UserArea = () => {
               const vencimento = emp.data_vencimento
                 ? new Date(emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00')
                 : null;
-              const diasAtraso = vencimento && emp.status === 'ativo'
-                ? Math.max(0, Math.floor((hoje - vencimento) / (1000 * 60 * 60 * 24)))
-                : 0;
-              const jurosAtraso = diasAtraso > 0 ? principal * (diasAtraso * 0.01) : 0;
-              const estaAtrasado = diasAtraso > 0;
+              // Usa calcularJurosAtraso: 30%/mês completo + 1%/dia corrido
+              const { mesesAtraso, diasCorridos, jurosAtraso } = vencimento && emp.status === 'ativo'
+                ? calcularJurosAtraso(emp.data_vencimento, principal)
+                : { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
+              const diasAtraso = mesesAtraso > 0 || diasCorridos > 0 ? (mesesAtraso * 30 + diasCorridos) : 0;
+              const estaAtrasado = mesesAtraso > 0 || diasCorridos > 0;
               
               return (
                 <div key={emp.id} className={`p-4 rounded-lg border ${estaAtrasado ? 'bg-red-50 border-red-300' : emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
