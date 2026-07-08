@@ -248,38 +248,43 @@ const UserArea = () => {
     const vencStr = dataVencimento.includes('T') ? dataVencimento : dataVencimento + 'T00:00:00';
     const venc = new Date(vencStr);
     venc.setHours(0, 0, 0, 0);
-    if (hoje <= venc) return { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
+    if (hoje <= venc) return { diasAtraso: 0, vencimentosUltrapassados: 0, jurosAtraso: 0 };
 
-    let meses = 1;
+    // Dias corridos desde o vencimento original (usado para 1%/dia)
+    const diasAtraso = Math.floor((hoje - venc) / (1000 * 60 * 60 * 24));
+
+    // Conta quantos vencimentos mensais foram ultrapassados após o original
+    // (cada um cobra +30% do principal). Vencimento é sempre o mesmo dia do mês.
+    let vencimentosUltrapassados = 0;
     let cursor = new Date(venc);
     while (true) {
-      const proximo = new Date(cursor);
-      proximo.setMonth(proximo.getMonth() + 1);
-      if (proximo <= hoje) { meses++; cursor = proximo; } else break;
+      cursor.setMonth(cursor.getMonth() + 1);
+      if (cursor <= hoje) vencimentosUltrapassados++;
+      else break;
     }
-    const diasCorridos = Math.floor((hoje - cursor) / (1000 * 60 * 60 * 24));
-    const jurosAtraso = principal * (meses * 0.30 + diasCorridos * 0.01);
-    return { mesesAtraso: meses, diasCorridos, jurosAtraso };
+
+    const jurosAtraso = principal * (vencimentosUltrapassados * 0.30 + diasAtraso * 0.01);
+    return { diasAtraso, vencimentosUltrapassados, jurosAtraso };
   };
 
   const calcularPagamentoEmprestimo = () => {
-    if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30, mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
+    if (!emprestimoSelecionado) return { jurosVista: 0, jurosParcelado: 0, totalQuitacao: 0, totalSoJuros: 0, taxaVista: 20, taxaParcelado: 30, diasAtraso: 0, vencimentosUltrapassados: 0, jurosAtraso: 0 };
     const principal = Number(emprestimoSelecionado.principal_restante || emprestimoSelecionado.valor_emprestimo || 0);
     const taxaVista = parseFloat(configuracoes?.juros_vista || 20);
     const taxaParcelado = parseFloat(configuracoes?.juros_parcelado || 30);
     const jurosVista = principal * (taxaVista / 100);
     const jurosParcelado = principal * (taxaParcelado / 100);
 
-    let mesesAtraso = 0, diasCorridos = 0, jurosAtraso = 0;
+    let diasAtraso = 0, vencimentosUltrapassados = 0, jurosAtraso = 0;
     if (emprestimoSelecionado.data_vencimento && emprestimoSelecionado.status === 'ativo') {
-      ({ mesesAtraso, diasCorridos, jurosAtraso } = calcularJurosAtraso(
+      ({ diasAtraso, vencimentosUltrapassados, jurosAtraso } = calcularJurosAtraso(
         emprestimoSelecionado.data_vencimento, principal
       ));
     }
 
     return {
       principal, taxaVista, taxaParcelado, jurosVista, jurosParcelado,
-      mesesAtraso, diasCorridos, jurosAtraso,
+      diasAtraso, vencimentosUltrapassados, jurosAtraso,
       totalQuitacao: principal + jurosVista + jurosAtraso,
       totalSoJuros: jurosParcelado + jurosAtraso
     };
@@ -372,8 +377,11 @@ const UserArea = () => {
       let observacaoTexto = `Tipo: ${pagamentoEmprestimo.tipo === 'quitacao' ? `Quitação Total (${pagamentoCalc.taxaVista}%)` : pagamentoEmprestimo.tipo === 'soJuros' ? `Só Juros (${pagamentoCalc.taxaParcelado}%)` : `Juros + Parcial (${pagamentoCalc.taxaParcelado}%)`}`;
       
       // Adicionar info de juros de atraso se houver
-      if (pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) {
-        observacaoTexto += ` | Atraso: ${pagamentoCalc.mesesAtraso} mês(es) + ${pagamentoCalc.diasCorridos} dia(s) = ${formatCurrency(pagamentoCalc.jurosAtraso)}`;
+      if (pagamentoCalc.diasAtraso > 0) {
+        const partes = [];
+        if (pagamentoCalc.vencimentosUltrapassados > 0) partes.push(`${pagamentoCalc.vencimentosUltrapassados} venc. × 30%`);
+        partes.push(`${pagamentoCalc.diasAtraso} dia(s) × 1%`);
+        observacaoTexto += ` | Atraso: ${partes.join(' + ')} = ${formatCurrency(pagamentoCalc.jurosAtraso)}`;
       }
       
       // Registrar comprovante com informações do tipo de pagamento
@@ -772,12 +780,11 @@ const UserArea = () => {
               const vencimento = emp.data_vencimento
                 ? new Date(emp.data_vencimento.includes('T') ? emp.data_vencimento : emp.data_vencimento + 'T00:00:00')
                 : null;
-              // Usa calcularJurosAtraso: 30%/mês completo + 1%/dia corrido
-              const { mesesAtraso, diasCorridos, jurosAtraso } = vencimento && emp.status === 'ativo'
+              // Usa calcularJurosAtraso: 30% por vencimento ultrapassado + 1%/dia desde o vencimento original
+              const { diasAtraso, vencimentosUltrapassados, jurosAtraso } = vencimento && emp.status === 'ativo'
                 ? calcularJurosAtraso(emp.data_vencimento, principal)
-                : { mesesAtraso: 0, diasCorridos: 0, jurosAtraso: 0 };
-              const diasAtraso = mesesAtraso > 0 || diasCorridos > 0 ? (mesesAtraso * 30 + diasCorridos) : 0;
-              const estaAtrasado = mesesAtraso > 0 || diasCorridos > 0;
+                : { diasAtraso: 0, vencimentosUltrapassados: 0, jurosAtraso: 0 };
+              const estaAtrasado = diasAtraso > 0;
               
               return (
                 <div key={emp.id} className={`p-4 rounded-lg border ${estaAtrasado ? 'bg-red-50 border-red-300' : emp.status === 'ativo' ? 'bg-orange-50 border-orange-200' : emp.status === 'pago' ? 'bg-green-50 border-green-200' : emp.status === 'pendente' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -815,7 +822,7 @@ const UserArea = () => {
                           {estaAtrasado && (
                             <div className="bg-red-100 p-2 rounded mt-1 mb-2">
                               <p className="text-red-700 font-medium text-sm">
-                                ⚠️ Juros por atraso: {diasAtraso} dia(s) × 1% = {formatCurrency(jurosAtraso)}
+                                ⚠️ Juros por atraso: {vencimentosUltrapassados > 0 && `${vencimentosUltrapassados} venc. × 30% + `}{diasAtraso} dia(s) × 1% = {formatCurrency(jurosAtraso)}
                               </p>
                             </div>
                           )}
@@ -1020,32 +1027,30 @@ const UserArea = () => {
             
             <div className="p-4 space-y-4">
               {/* Resumo do Empréstimo */}
-              <div className={`p-3 rounded-lg ${(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? 'bg-red-50 border border-red-200' : 'bg-orange-50'}`}>
+              <div className={`p-3 rounded-lg ${pagamentoCalc.diasAtraso > 0 ? 'bg-red-50 border border-red-200' : 'bg-orange-50'}`}>
                 <p className="text-sm text-gray-700">
                   <strong>Principal Restante:</strong> {formatCurrency(pagamentoCalc.principal)}
                 </p>
                 {emprestimoSelecionado?.data_vencimento && (
-                  <p className={`text-xs mt-1 ${(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
+                  <p className={`text-xs mt-1 ${pagamentoCalc.diasAtraso > 0 ? 'text-red-600 font-medium' : 'text-gray-500'}`}>
                     Vencimento: {new Date(emprestimoSelecionado.data_vencimento).toLocaleDateString('pt-BR')}
-                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && ` (${pagamentoCalc.mesesAtraso} mês(es) e ${pagamentoCalc.diasCorridos} dia(s) em atraso)`}
+                    {pagamentoCalc.diasAtraso > 0 && ` (${pagamentoCalc.diasAtraso} dia(s) em atraso)`}
                   </p>
                 )}
               </div>
               
               {/* Alerta de Juros de Atraso */}
-              {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
+              {pagamentoCalc.diasAtraso > 0 && (
                 <div className="bg-red-100 border border-red-300 rounded-lg p-3">
                   <p className="text-sm font-medium text-red-800 flex items-center gap-2">
                     <AlertTriangle size={16} />
                     Juros por Atraso
                   </p>
                   <div className="mt-2 text-sm text-red-700 space-y-1">
-                    {pagamentoCalc.mesesAtraso > 0 && (
-                      <p>{pagamentoCalc.mesesAtraso} mês(es) × 30% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.mesesAtraso * 0.30)}</strong></p>
+                    {pagamentoCalc.vencimentosUltrapassados > 0 && (
+                      <p>{pagamentoCalc.vencimentosUltrapassados} vencimento(s) ultrapassado(s) × 30% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.vencimentosUltrapassados * 0.30)}</strong></p>
                     )}
-                    {pagamentoCalc.diasCorridos > 0 && (
-                      <p>{formatCurrency(pagamentoCalc.principal)} × {pagamentoCalc.diasCorridos} dia(s) × 1% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.diasCorridos * 0.01)}</strong></p>
-                    )}
+                    <p>{formatCurrency(pagamentoCalc.principal)} × {pagamentoCalc.diasAtraso} dia(s) × 1% = <strong>{formatCurrency(pagamentoCalc.principal * pagamentoCalc.diasAtraso * 0.01)}</strong></p>
                     <p className="font-medium border-t border-red-300 pt-1">Total atraso: <strong>{formatCurrency(pagamentoCalc.jurosAtraso)}</strong></p>
                   </div>
                   <p className="text-xs text-red-600 mt-2">Este valor será adicionado ao pagamento.</p>
@@ -1069,7 +1074,7 @@ const UserArea = () => {
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">Quitação Total ({pagamentoCalc.taxaVista}% juros)</p>
                     <p className="text-sm text-green-600 font-bold">{formatCurrency(pagamentoCalc.totalQuitacao)}</p>
-                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
+                    {pagamentoCalc.diasAtraso > 0 && (
                       <p className="text-xs text-red-600">Inclui {formatCurrency(pagamentoCalc.jurosAtraso)} de juros por atraso</p>
                     )}
                   </div>
@@ -1089,7 +1094,7 @@ const UserArea = () => {
                     <p className="font-medium text-gray-800">Só Juros ({pagamentoCalc.taxaParcelado}%)</p>
                     <p className="text-sm text-orange-600 font-bold">{formatCurrency(pagamentoCalc.totalSoJuros)}</p>
                     <p className="text-xs text-gray-500">Principal continua: {formatCurrency(pagamentoCalc.principal)}</p>
-                    {(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) && (
+                    {pagamentoCalc.diasAtraso > 0 && (
                       <p className="text-xs text-red-600">Inclui {formatCurrency(pagamentoCalc.jurosAtraso)} de juros por atraso</p>
                     )}
                   </div>
@@ -1107,7 +1112,7 @@ const UserArea = () => {
                   />
                   <div className="flex-1">
                     <p className="font-medium text-gray-800">Juros + Parte do Principal ({pagamentoCalc.taxaParcelado}%)</p>
-                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? ' + atraso' : ''})</p>
+                    <p className="text-xs text-gray-500">Mínimo: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{pagamentoCalc.diasAtraso > 0 ? ' + atraso' : ''})</p>
                   </div>
                 </label>
                 
@@ -1124,7 +1129,7 @@ const UserArea = () => {
                     />
                     {pagamentoEmprestimo.valorParcial && parseFloat(pagamentoEmprestimo.valorParcial) >= pagamentoCalc.totalSoJuros && (
                       <p className="text-xs text-blue-600 mt-1">
-                        Abate: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{(pagamentoCalc.mesesAtraso > 0 || pagamentoCalc.diasCorridos > 0) ? ' + atraso' : ''}) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.totalSoJuros)} (principal)
+                        Abate: {formatCurrency(pagamentoCalc.totalSoJuros)} (juros{pagamentoCalc.diasAtraso > 0 ? ' + atraso' : ''}) + {formatCurrency(parseFloat(pagamentoEmprestimo.valorParcial) - pagamentoCalc.totalSoJuros)} (principal)
                       </p>
                     )}
                   </div>
